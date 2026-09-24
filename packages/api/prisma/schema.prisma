@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+enum Frequency {
+  ANNUAL
+  SEMI_ANNUAL
+  QUARTERLY
+  MONTHLY
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model User {
+  id           String   @id @default(uuid())
+  emailHash    String   @unique
+  emailEnc     Bytes
+  passwordHash String
+  nameEnc      Bytes
+  dobEnc       Bytes
+  mobileEnc    Bytes
+  nameInitial  String   @db.VarChar(1)
+  mobileLast4  String   @db.VarChar(4)
+  role         Role     @default(CUSTOMER)
+  tokenVersion Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  illustrations Illustration[]
+  auditLogs     AuditLog[]
+}
+
+model PolicyType {
+  id             String   @id @default(uuid())
+  code           String   @unique
+  name           String
+  description    String
+  minAge         Int
+  maxAge         Int
+  minTerm        Int
+  maxTerm        Int
+  minPremiumTerm Int
+  maxMaturityAge Int
+  minSumAssured  Decimal  @db.Decimal(15, 2)
+  maxSumAssured  Decimal  @db.Decimal(15, 2)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  riders         Rider[]
+  premiumOptions PremiumOption[]
+  rateTables     RateTable[]
+  illustrations  Illustration[]
+}
+
+model Rider {
+  id           String     @id @default(uuid())
+  policyTypeId String
+  policyType   PolicyType @relation(fields: [policyTypeId], references: [id], onDelete: Cascade)
+  code         String
+  name         String
+  description  String
+  ratePerMille Decimal    @db.Decimal(10, 4)
+  coverPct     Decimal    @db.Decimal(6, 4)
+
+  @@unique([policyTypeId, code])
+}
+
+model PremiumOption {
+  id                 String     @id @default(uuid())
+  policyTypeId       String
+  policyType         PolicyType @relation(fields: [policyTypeId], references: [id], onDelete: Cascade)
+  frequency          Frequency
+  modalFactor        Decimal    @db.Decimal(8, 6)
+  instalmentsPerYear Int
+
+  @@unique([policyTypeId, frequency])
+}
+
+model RateTable {
+  id            String     @id @default(uuid())
+  policyTypeId  String
+  policyType    PolicyType @relation(fields: [policyTypeId], references: [id], onDelete: Cascade)
+  version       String
+  effectiveFrom DateTime   @db.Date
+  isActive      Boolean    @default(false)
+  assumptions   Json
+  createdAt     DateTime   @default(now())
+
+  @@unique([policyTypeId, version])
+}
+
+model Illustration {
+  id              String     @id @default(uuid())
+  userId          String
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policyTypeId    String
+  policyType      PolicyType @relation(fields: [policyTypeId], references: [id])
+  dobEnc          Bytes
+  gender          Gender
+  sumAssured      Decimal    @db.Decimal(15, 2)
+  policyTerm      Int
+  premiumTerm     Int
+  frequency       Frequency
+  riderCodes      String[]
+  asOfDate        DateTime   @db.Date
+  rateVersion     String
+  entryAge        Int
+  modalPremium    Decimal    @db.Decimal(15, 2)
+  totalPremium    Decimal    @db.Decimal(15, 2)
+  maturityBenefit Decimal    @db.Decimal(15, 2)
+  createdAt       DateTime   @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  ipHash    String?
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+}
