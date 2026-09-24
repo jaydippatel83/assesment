@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.local
+*.pem
+*.key
+
+# Prisma
+packages/api/prisma/*.db
+packages/api/prisma/*.db-journal
+packages/api/src/generated/
+
+# Tests / coverage
+coverage/
+.vitest/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Caches
+.cache/
+.vite/
+.eslintcache
+.turbo/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.sw?
+.DS_Store
+Thumbs.db
