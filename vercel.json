@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build -w packages/web",
+  "outputDirectory": "packages/web/dist",
+  "framework": null,
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://benefit-illustration-api.onrender.com/api/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

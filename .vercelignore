@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/dist
+**/generated
+*.csv
+*.log
+.DS_Store

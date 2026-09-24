@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: benefit-illustration-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev
+    startCommand: npm run db:deploy -w packages/api && npm start -w packages/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "24"
+      - key: TRUST_PROXY
+        value: "2"
+      - key: BUSINESS_TIMEZONE
+        value: Asia/Kolkata
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: PII_ENCRYPTION_KEYS
+        generateValue: true
+      - key: PII_ACTIVE_KEY_VERSION
+        value: "1"
+      - key: PII_HMAC_KEY
+        generateValue: true

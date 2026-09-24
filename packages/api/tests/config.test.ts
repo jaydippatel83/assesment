@@ -33,6 +33,16 @@ describe('loadConfig (fail fast on boot)', () => {
     expect(() => loadConfig({ ...testEnv(), PII_ENCRYPTION_KEYS: '1:c2hvcnQ=' })).toThrow('PII_ENCRYPTION_KEYS');
   });
 
+  it('treats a bare key as key version 1', () => {
+    const bare = testEnv().PII_ENCRYPTION_KEYS.slice(2);
+    expect(loadConfig({ ...testEnv(), PII_ENCRYPTION_KEYS: bare }).PII_ENCRYPTION_KEYS.get(1)).toHaveLength(32);
+  });
+
+  it('defaults to trusting one proxy hop', () => {
+    expect(loadConfig(testEnv()).TRUST_PROXY).toBe(1);
+    expect(loadConfig({ ...testEnv(), TRUST_PROXY: '2' }).TRUST_PROXY).toBe(2);
+  });
+
   it('rejects an active key version that has no key', () => {
     expect(() => loadConfig({ ...testEnv(), PII_ACTIVE_KEY_VERSION: '2' })).toThrow('PII_ACTIVE_KEY_VERSION');
   });

@@ -27,7 +27,7 @@ export function createApp(ctx: AppContext) {
   const isTest = ctx.config.NODE_ENV === 'test';
 
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  app.set('trust proxy', ctx.config.TRUST_PROXY);
   app.use(helmet());
   app.use(cors({ origin: ctx.config.WEB_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '100kb' }));

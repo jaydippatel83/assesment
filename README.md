@@ -33,6 +33,7 @@ A full-stack web app that prices a life insurance policy and shows what it pays 
 13. [Tests](#13-tests)
 14. [Known gaps and next steps](#14-known-gaps-and-next-steps)
 15. [Troubleshooting](#15-troubleshooting)
+16. [Deployment](#16-deployment)
 
 ---
 
@@ -532,3 +533,41 @@ Run everything with `npm test`: 58 core tests and 43 API tests.
 | `bcrypt` or Prisma errors after install | `npm install-scripts approve bcrypt prisma @prisma/engines esbuild && npm rebuild` |
 | Web app says it can't reach the server | Make sure the API is running on port 4000. `npm run dev` starts both. |
 | Port 5173 is in use | Another Vite server is running. Stop it, or use the port Vite prints. |
+
+---
+
+## 16. Deployment
+
+The app runs entirely on free tiers:
+
+| Part | Platform | Config in the repo |
+| --- | --- | --- |
+| Database | Render PostgreSQL (free for 30 days; Neon is a permanent free alternative) | — |
+| API | Render web service (free; sleeps after ~15 minutes idle) | `render.yaml` |
+| Frontend | Vercel (free) | `vercel.json`, `.vercelignore` |
+
+```
+browser ──► Vercel (React app)
+               │  /api/* rewritten to Render
+               ▼
+           Render web service (Express API) ──► Render PostgreSQL
+```
+
+The browser only ever talks to the Vercel domain. Vercel forwards `/api/*` to Render. This keeps the refresh cookie (`SameSite=Strict`) on the same site, so sessions survive a page reload. Because requests pass through two proxies (Vercel, then Render's load balancer), the API runs with `TRUST_PROXY=2` so rate limiting sees the real visitor's IP.
+
+**Step by step**
+1. **Database.** Create a Render PostgreSQL database. From your machine, apply the schema and load the sample plans. External Render URLs need `?sslmode=verify-full`.
+   ```bash
+   cd packages/api
+   DATABASE_URL="<external url>?sslmode=verify-full" npx prisma migrate deploy
+   DATABASE_URL="<external url>?sslmode=verify-full" npm run db:seed
+   ```
+2. **API.** In Render, choose **New → Blueprint** and select this repository. Render reads `render.yaml`, generates every secret itself, and asks for two values:
+   - `DATABASE_URL`: the database's **Internal** Database URL
+   - `WEB_ORIGIN`: the Vercel URL, for example `https://assesment.vercel.app`
+
+   Each deploy runs `prisma migrate deploy` before starting the server. Check `https://<service>.onrender.com/api/health` afterwards.
+3. **Frontend.** Import the repository in Vercel, or run `vercel --prod` from the project root. `vercel.json` sets the install, build and output settings and the `/api` rewrite. If Render gives the API a different URL than `benefit-illustration-api.onrender.com`, update the rewrite destination in `vercel.json`.
+
+**After deploying.** The first request after the API has slept takes about 50 seconds. A free uptime monitor pinging `/api/health` every 10 minutes keeps it awake.
+

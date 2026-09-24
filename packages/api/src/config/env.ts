@@ -9,7 +9,7 @@ const keyring = z
   .transform((raw, ctx) => {
     const keys = new Map<number, Buffer>();
     for (const entry of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
-      const [version, b64] = entry.split(':');
+      const [version, b64] = entry.includes(':') ? entry.split(':') : ['1', entry];
       const v = Number(version);
       const key = Buffer.from(b64 ?? '', 'base64');
       if (!Number.isInteger(v) || v < 1 || v > 255 || key.length !== 32) {
@@ -29,6 +29,7 @@ const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().positive().default(4000),
+    TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(1),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     DATABASE_URL: z.url(),
     WEB_ORIGIN: z.url(),
