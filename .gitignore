@@ -52,3 +52,6 @@ Thumbs.db
 
 # Bulk runner input/output files
 bulk-*.csv
+.vercel
+.env*
+!.env.example
