@@ -60,6 +60,14 @@ export function CalculatePage() {
     api
       .get<{ policyTypes: PolicyTypeView[] }>('/policy-types')
       .then((r) => {
+        if (r.data.policyTypes.length === 0) {
+          setLoadError('No plans are available yet. Please try again later.')
+          return
+        }
+        if (r.data.policyTypes.some((p) => p.minPremium === undefined || !p.premiumOptions)) {
+          setLoadError('The server is running an older version of the app. Please try again after it has been updated.')
+          return
+        }
         setPolicyTypes(r.data.policyTypes)
         if (r.data.policyTypes[0]) setValue('policyTypeCode', r.data.policyTypes[0].code)
       })
