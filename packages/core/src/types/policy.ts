@@ -29,7 +29,6 @@ export interface PolicyType {
 export interface RateTable {
   policyTypeCode: string;
   version: string;
-  /** Bonus rate as a fraction of the sum assured, one entry per policy year starting at year 1. */
   bonusRates: string[];
 }
 

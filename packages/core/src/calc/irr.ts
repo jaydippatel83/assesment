@@ -4,7 +4,6 @@ const TOLERANCE = new D('1e-12');
 const LOWEST = new D('-0.99');
 const HIGHEST = new D(10);
 
-/** Net present value at `rate` and its derivative with respect to the rate. */
 function npvWithSlope(rate: Money, cashflows: Money[]): { npv: Money; slope: Money } {
   const discount = new D(1).div(rate.plus(1));
   let factor = new D(1);
@@ -20,7 +19,6 @@ function npvWithSlope(rate: Money, cashflows: Money[]): { npv: Money; slope: Mon
   return { npv, slope };
 }
 
-/** A float estimate to start from, so the exact decimal iterations only have to polish it. */
 function floatEstimate(cashflows: Money[]): number {
   const flows = cashflows.map((cf) => cf.toNumber());
   let rate = 0.1;
@@ -65,13 +63,6 @@ function bisect(cashflows: Money[]): Money | null {
   return low.plus(high).div(2);
 }
 
-/**
- * Internal rate of return of yearly cash flows, the first one at time 0, as a fraction.
- * Matches the spreadsheet IRR() function. Newton's method, started from a float estimate,
- * converges in two or three exact steps; bisection is the fallback if it does not.
- * Returns null when the flows never change sign, because no rate can then bring their net
- * present value to zero.
- */
 export function irr(cashflows: Money[]): Money | null {
   const hasOutflow = cashflows.some((cf) => cf.isNegative() && !cf.isZero());
   const hasInflow = cashflows.some((cf) => cf.isPositive() && !cf.isZero());

@@ -28,7 +28,6 @@ type RuleField = keyof IllustrationInput;
 
 export interface ValidationRule {
   id: string;
-  /** Which of the five rules on the product's Inputs sheet this check implements. */
   sheetRule: 1 | 2 | 3 | 4 | 5;
   field: RuleField;
   check: (input: IllustrationInput, policy: PolicyType, entryAge: number) => boolean;
@@ -41,7 +40,6 @@ export function instalmentsPerYear(policy: PolicyType, frequency: string): numbe
   return policy.premiumOptions.find((o) => o.frequency === frequency)?.instalmentsPerYear;
 }
 
-/** Smallest sum assured allowed: 10 × the annual premium, but never more than the cap. */
 export function minimumSumAssured(policy: PolicyType, annualPremium: Money): Money {
   return minOf(annualPremium.times(policy.sumAssuredMultiple), new D(policy.sumAssuredCap));
 }

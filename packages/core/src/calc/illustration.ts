@@ -67,16 +67,6 @@ export function calculatePremium(input: IllustrationInput, policy: PolicyType, a
   };
 }
 
-/**
- * Builds the Illustrations sheet: one row per year of the bonus schedule.
- *
- * - Premium: modal premium × instalments per year, while the year is within the premium paying term.
- * - Bonus amount: sum assured × that year's bonus rate.
- * - Total benefit: paid once, at the end of the policy term: sum assured plus the bonus amounts of
- *   every year in the schedule. The spreadsheet sums the whole schedule, including years after
- *   the policy term, and this reproduces it so the figures match.
- * - Net cash flow: total benefit − premium. The IRR is taken over these, year 1 at time 0.
- */
 export function generateIllustration(
   input: IllustrationInput,
   policy: PolicyType,
@@ -170,7 +160,6 @@ function serialize<T>(value: T): Serialized<T> {
   return value as Serialized<T>;
 }
 
-/** IRR as a fraction to 6 decimal places, e.g. "0.084150" for 8.42%. */
 export const toRateString = (rate: Money) => rate.toDecimalPlaces(6, D.ROUND_HALF_UP).toFixed(6);
 
 export function toIllustrationDTO(result: IllustrationResult): IllustrationResultDTO {
