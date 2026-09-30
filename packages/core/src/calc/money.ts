@@ -16,3 +16,7 @@ export function toMoneyString(value: Money): string {
 export function maxOf(...values: Money[]): Money {
   return values.reduce((best, v) => (v.greaterThan(best) ? v : best));
 }
+
+export function minOf(...values: Money[]): Money {
+  return values.reduce((best, v) => (v.lessThan(best) ? v : best));
+}

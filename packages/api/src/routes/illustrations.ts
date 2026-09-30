@@ -4,6 +4,7 @@ import {
   ILLUSTRATION_COLUMNS,
   illustrationInputShape,
   toIllustrationDTO,
+  toRateString,
   type IllustrationInput,
   type Product,
 } from '@app/core';
@@ -56,16 +57,16 @@ export function illustrationRoutes(ctx: AppContext) {
         dobEnc: ctx.cipher.encrypt(input.dob, 'illustration.dob'),
         gender: input.gender,
         sumAssured: input.sumAssured.toString(),
+        modalPremium: input.modalPremium.toString(),
         policyTerm: input.policyTerm,
         premiumTerm: input.premiumTerm,
         frequency: input.frequency,
-        riderCodes: input.riderCodes,
         asOfDate: dateColumn(asOf),
         rateVersion: result.rateVersion,
         entryAge: result.premium.entryAge,
-        modalPremium: result.premium.modalPremium.toFixed(2),
         totalPremium: result.summary.totalPremiumPaid.toFixed(2),
         maturityBenefit: result.summary.maturityBenefit.toFixed(2),
+        irr: result.summary.irr && toRateString(result.summary.irr),
       },
     });
     await audit(ctx, { action: 'ILLUSTRATION_CREATE', userId, ip: req.ip, metadata: { illustrationId: saved.id } });
@@ -88,12 +89,12 @@ export function illustrationRoutes(ctx: AppContext) {
         policyTerm: r.policyTerm,
         premiumTerm: r.premiumTerm,
         frequency: r.frequency,
-        riderCodes: r.riderCodes,
         asOf: isoDateOf(r.asOfDate),
         entryAge: r.entryAge,
         modalPremium: r.modalPremium.toFixed(2),
         totalPremium: r.totalPremium.toFixed(2),
         maturityBenefit: r.maturityBenefit.toFixed(2),
+        irr: r.irr?.toFixed(6) ?? null,
         createdAt: r.createdAt,
       })),
     });
@@ -115,10 +116,10 @@ export function illustrationRoutes(ctx: AppContext) {
       dob: ctx.cipher.decrypt(row.dobEnc, 'illustration.dob'),
       gender: row.gender,
       sumAssured: Number(row.sumAssured),
+      modalPremium: Number(row.modalPremium),
       policyTerm: row.policyTerm,
       premiumTerm: row.premiumTerm,
       frequency: row.frequency,
-      riderCodes: row.riderCodes,
     };
     const result = generateIllustration(input, product.policyType, product.rates, asOf);
     res.json({ id: row.id, createdAt: row.createdAt, ...view(product, input, asOf, result) });

@@ -4,10 +4,10 @@ export const INPUT_COLUMNS = [
   'dob',
   'gender',
   'sumAssured',
+  'modalPremium',
   'policyTerm',
   'premiumTerm',
   'frequency',
-  'riderCodes',
 ] as const;
 
 export const OUTPUT_COLUMNS = [
@@ -18,6 +18,7 @@ export const OUTPUT_COLUMNS = [
   'annualisedPremium',
   'totalPremiumPaid',
   'maturityBenefit',
+  'irr',
   'rateVersion',
   'errors',
 ] as const;

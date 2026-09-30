@@ -9,15 +9,18 @@ export function product(code: string): Product {
 }
 
 export const endowment = product('ENDOWMENT');
-export const moneyBack = product('MONEYBACK');
 
-export const validInput: IllustrationInput = {
+/** The Inputs sheet's example. Its ₹80,000 premium is above the ₹50,000 limit, so it fails validation. */
+export const sheetInput: IllustrationInput = {
   policyTypeCode: 'ENDOWMENT',
-  dob: '1996-01-15',
+  dob: '1999-12-12',
   gender: 'MALE',
-  sumAssured: 1_000_000,
-  policyTerm: 20,
+  sumAssured: 1_200_000,
+  modalPremium: 80_000,
+  policyTerm: 18,
   premiumTerm: 10,
   frequency: 'ANNUAL',
-  riderCodes: [],
 };
+
+/** The sheet's example with the premium brought within limits. */
+export const validInput: IllustrationInput = { ...sheetInput, modalPremium: 40_000 };

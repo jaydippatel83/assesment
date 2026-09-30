@@ -15,7 +15,6 @@ enum Role {
 enum Frequency {
   ANNUAL
   SEMI_ANNUAL
-  QUARTERLY
   MONTHLY
 }
 
@@ -53,30 +52,18 @@ model PolicyType {
   maxAge         Int
   minTerm        Int
   maxTerm        Int
-  minPremiumTerm Int
-  maxMaturityAge Int
-  minSumAssured  Decimal  @db.Decimal(15, 2)
-  maxSumAssured  Decimal  @db.Decimal(15, 2)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  minPremiumTerm     Int
+  maxPremiumTerm     Int
+  minPremium         Decimal  @db.Decimal(15, 2)
+  maxPremium         Decimal  @db.Decimal(15, 2)
+  sumAssuredMultiple Decimal  @db.Decimal(8, 4)
+  sumAssuredCap      Decimal  @db.Decimal(15, 2)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
 
-  riders         Rider[]
   premiumOptions PremiumOption[]
   rateTables     RateTable[]
   illustrations  Illustration[]
-}
-
-model Rider {
-  id           String     @id @default(uuid())
-  policyTypeId String
-  policyType   PolicyType @relation(fields: [policyTypeId], references: [id], onDelete: Cascade)
-  code         String
-  name         String
-  description  String
-  ratePerMille Decimal    @db.Decimal(10, 4)
-  coverPct     Decimal    @db.Decimal(6, 4)
-
-  @@unique([policyTypeId, code])
 }
 
 model PremiumOption {
@@ -84,7 +71,6 @@ model PremiumOption {
   policyTypeId       String
   policyType         PolicyType @relation(fields: [policyTypeId], references: [id], onDelete: Cascade)
   frequency          Frequency
-  modalFactor        Decimal    @db.Decimal(8, 6)
   instalmentsPerYear Int
 
   @@unique([policyTypeId, frequency])
@@ -112,16 +98,16 @@ model Illustration {
   dobEnc          Bytes
   gender          Gender
   sumAssured      Decimal    @db.Decimal(15, 2)
+  modalPremium    Decimal    @db.Decimal(15, 2)
   policyTerm      Int
   premiumTerm     Int
   frequency       Frequency
-  riderCodes      String[]
   asOfDate        DateTime   @db.Date
   rateVersion     String
   entryAge        Int
-  modalPremium    Decimal    @db.Decimal(15, 2)
   totalPremium    Decimal    @db.Decimal(15, 2)
   maturityBenefit Decimal    @db.Decimal(15, 2)
+  irr             Decimal?   @db.Decimal(9, 6)
   createdAt       DateTime   @default(now())
 
   @@index([userId, createdAt])

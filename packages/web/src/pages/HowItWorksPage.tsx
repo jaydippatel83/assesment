@@ -3,22 +3,20 @@ import { PageHeader } from '../components/PageHeader'
 
 const FORMULAS: [string, string][] = [
   ['Entry age', 'Age at last completed birthday on the valuation date'],
-  ['Rating age', 'Entry age, less 3 years for female lives'],
-  ['Annual base premium', 'Sum assured ÷ 1,000 × rate for the rating age × policy term ÷ premium paying term'],
-  ['Rider premium', 'Rider cover ÷ 1,000 × rider rate, where rider cover = sum assured × cover %'],
-  ['Instalment', '(Base + rider premium) × modal factor for the chosen frequency, rounded to paise'],
-  ['Bonus each year', 'Sum assured × reversionary bonus rate (simple, not compounding)'],
-  ['Death benefit', 'Highest of sum assured, 10× annual premium and 105% of premiums paid, plus accrued bonus'],
-  ['Surrender value', 'Premiums paid × surrender factor for the policy year (nil in year 1)'],
-  ['Maturity benefit', 'Sum assured + accrued bonus + terminal bonus, paid at the end of the term'],
+  ['Annual premium', 'Premium per instalment × instalments a year (1 yearly, 2 half-yearly, 12 monthly)'],
+  ['Premium, each year', 'The annual premium while the year is within the premium paying term; nil after that'],
+  ['Bonus amount', 'Sum assured × that year’s bonus rate from the bonus schedule'],
+  ['Total benefit', 'Sum assured + the bonus amount for every year of the bonus schedule, paid at the end of the policy term'],
+  ['Net cash flow', 'Total benefit received − premium paid, for each year'],
+  ['IRR', 'The yearly rate at which the net cash flows’ present value is zero, with year 1 at time 0'],
 ]
 
 const RULES = [
-  'Entry age is within the plan’s age band',
-  'Sum assured is within the plan’s range',
-  'Policy term is within the plan’s range',
-  'Premium paying term is at least the plan’s minimum and no longer than the policy term',
-  'Entry age plus policy term does not exceed the plan’s maximum maturity age',
+  'Premium paying term is 5–10 years, policy term is 10–20 years, and each premium instalment is ₹10,000–₹50,000',
+  'Policy term is longer than the premium paying term',
+  'Premiums are paid yearly, half-yearly or monthly',
+  'Sum assured is at least 10× the annual premium, or ₹50,00,000 if that is lower',
+  'Entry age is between 23 and 56',
 ]
 
 export function HowItWorksPage() {
@@ -30,7 +28,7 @@ export function HowItWorksPage() {
           <div className="card-header">
             <div>
               <h2>Eligibility checks</h2>
-              <p>Every input is checked against the selected plan, in your browser and again on the server.</p>
+              <p>Every input is checked against the plan’s limits, in your browser and again on the server.</p>
             </div>
           </div>
           <ol className="card-body" style={{ margin: 0, paddingLeft: 48, display: 'grid', gap: 10 }}>
@@ -68,7 +66,7 @@ export function HowItWorksPage() {
         </div>
 
         <p className="muted small">
-          Rates, bonus assumptions and surrender factors are versioned. A saved illustration always regenerates with the
+          The bonus schedule is versioned. A saved illustration always regenerates with the
           rates it was created with. <Link to="/calculate">Start an illustration</Link>
         </p>
       </div>

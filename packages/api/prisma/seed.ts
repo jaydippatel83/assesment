@@ -9,20 +9,13 @@ async function main() {
   const prisma = createPrisma(url);
 
   for (const { policyType, rates } of SAMPLE_PRODUCTS) {
-    const { riders, premiumOptions, ...fields } = policyType;
+    const { premiumOptions, ...fields } = policyType;
     const row = await prisma.policyType.upsert({
       where: { code: policyType.code },
       update: fields,
       create: fields,
     });
 
-    for (const rider of riders) {
-      await prisma.rider.upsert({
-        where: { policyTypeId_code: { policyTypeId: row.id, code: rider.code } },
-        update: rider,
-        create: { ...rider, policyTypeId: row.id },
-      });
-    }
     for (const option of premiumOptions) {
       await prisma.premiumOption.upsert({
         where: { policyTypeId_frequency: { policyTypeId: row.id, frequency: option.frequency } },
@@ -40,7 +33,7 @@ async function main() {
       create: {
         policyTypeId: row.id,
         version,
-        effectiveFrom: new Date('2026-04-01T00:00:00Z'),
+        effectiveFrom: new Date('2026-09-29T00:00:00Z'),
         isActive: true,
         assumptions,
       },

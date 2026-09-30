@@ -5,13 +5,7 @@ import type { PrismaClient } from '../generated/prisma/client.ts';
 const decimalString = z.string().regex(/^\d+(\.\d+)?$/);
 
 const assumptionsSchema = z.object({
-  premiumRates: z
-    .array(z.object({ minAge: z.number().int(), maxAge: z.number().int(), ratePerMille: decimalString }))
-    .min(1),
-  femaleAgeSetback: z.number().int().min(0),
-  reversionaryBonusRate: decimalString,
-  terminalBonusRate: decimalString,
-  surrenderFactors: z.array(z.object({ fromYear: z.number().int().min(1), factor: decimalString })),
+  bonusRates: z.array(decimalString).min(1),
 });
 
 export interface Catalog {
@@ -35,7 +29,6 @@ function loadPolicyTypes(prisma: PrismaClient, where: { code?: string; rateVersi
   return prisma.policyType.findMany({
     where: { isActive: true, ...(where.code ? { code: where.code } : {}) },
     include: {
-      riders: { orderBy: { code: 'asc' } },
       premiumOptions: { orderBy: { instalmentsPerYear: 'asc' } },
       rateTables: {
         where: where.rateVersion ? { version: where.rateVersion } : { isActive: true },
@@ -59,19 +52,13 @@ function toProduct(row: PolicyTypeRow): Product | undefined {
     minTerm: row.minTerm,
     maxTerm: row.maxTerm,
     minPremiumTerm: row.minPremiumTerm,
-    maxMaturityAge: row.maxMaturityAge,
-    minSumAssured: row.minSumAssured.toString(),
-    maxSumAssured: row.maxSumAssured.toString(),
-    riders: row.riders.map((r) => ({
-      code: r.code,
-      name: r.name,
-      description: r.description,
-      ratePerMille: r.ratePerMille.toString(),
-      coverPct: r.coverPct.toString(),
-    })),
+    maxPremiumTerm: row.maxPremiumTerm,
+    minPremium: row.minPremium.toString(),
+    maxPremium: row.maxPremium.toString(),
+    sumAssuredMultiple: row.sumAssuredMultiple.toString(),
+    sumAssuredCap: row.sumAssuredCap.toString(),
     premiumOptions: row.premiumOptions.map((o) => ({
       frequency: o.frequency,
-      modalFactor: o.modalFactor.toString(),
       instalmentsPerYear: o.instalmentsPerYear,
     })),
   };

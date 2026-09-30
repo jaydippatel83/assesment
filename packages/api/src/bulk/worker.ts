@@ -4,6 +4,7 @@ import {
   generateIllustration,
   SAMPLE_PRODUCTS,
   toMoneyString,
+  toRateString,
   type Product,
 } from '@app/core';
 import type { ChunkRequest, ChunkResult } from './protocol.js';
@@ -27,7 +28,7 @@ const csv = (value: string | number) => {
 };
 
 function processLine(line: string, asOf: string): { row: string; status: 'OK' | 'INVALID' | 'ERROR' } {
-  const [id = '', policyTypeCode = '', dob = '', gender = '', sumAssured = '', policyTerm = '', premiumTerm = '', frequency = '', riders = ''] =
+  const [id = '', policyTypeCode = '', dob = '', gender = '', sumAssured = '', modalPremium = '', policyTerm = '', premiumTerm = '', frequency = ''] =
     line.split(',');
   try {
     const raw = {
@@ -35,15 +36,15 @@ function processLine(line: string, asOf: string): { row: string; status: 'OK' | 
       dob,
       gender,
       sumAssured: Number(sumAssured),
+      modalPremium: Number(modalPremium),
       policyTerm: Number(policyTerm),
       premiumTerm: Number(premiumTerm),
       frequency,
-      riderCodes: riders ? riders.split('|') : [],
     };
     const parsed = schemaFor(policyTypeCode, asOf).safeParse(raw);
     if (!parsed.success) {
       const errors = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
-      return { row: [id, 'INVALID', '', '', '', '', '', '', csv(errors)].join(','), status: 'INVALID' };
+      return { row: [id, 'INVALID', '', '', '', '', '', '', '', csv(errors)].join(','), status: 'INVALID' };
     }
     const product = products.get(policyTypeCode)!;
     const result = generateIllustration(parsed.data, product.policyType, product.rates, asOf);
@@ -56,13 +57,14 @@ function processLine(line: string, asOf: string): { row: string; status: 'OK' | 
         toMoneyString(result.premium.annualisedPremium),
         toMoneyString(result.summary.totalPremiumPaid),
         toMoneyString(result.summary.maturityBenefit),
+        result.summary.irr ? toRateString(result.summary.irr) : '',
         result.rateVersion,
         '',
       ].join(','),
       status: 'OK',
     };
   } catch (err) {
-    return { row: [id, 'ERROR', '', '', '', '', '', '', csv((err as Error).message)].join(','), status: 'ERROR' };
+    return { row: [id, 'ERROR', '', '', '', '', '', '', '', csv((err as Error).message)].join(','), status: 'ERROR' };
   }
 }
 

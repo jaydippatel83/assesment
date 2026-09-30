@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, apiError } from '../api/client'
-import type { IllustrationView } from '../api/types'
+import type { Column, IllustrationView } from '../api/types'
 import { BenefitChart } from '../components/BenefitChart'
 import { Alert, PageLoading } from '../components/Field'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/PageHeader'
-import { formatDate, formatFrequency, formatINR, FREQUENCY_PER } from '../lib/format'
+import { formatDate, formatFrequency, formatINR, formatIrr, formatPct, FREQUENCY_PER } from '../lib/format'
+
+function formatCell(column: Column, value: string | number) {
+  if (column.format === 'number') return value
+  if (Number(value) === 0) return '–'
+  return column.format === 'percent' ? formatPct(String(value)) : formatINR(value)
+}
 
 export function IllustrationPage() {
   const { id } = useParams()
@@ -25,7 +31,6 @@ export function IllustrationPage() {
 
   const { input, premium, summary, rows } = data
   const multiple = Number(summary.maturityBenefit) / Number(summary.totalPremiumPaid)
-  const riders = premium.riderPremiums.map((r) => r.name)
 
   return (
     <>
@@ -46,11 +51,6 @@ export function IllustrationPage() {
               {input.policyTerm} yr term · {input.premiumTerm} yr pay
             </span>
             <span className="badge">{formatFrequency(input.frequency)} premiums</span>
-            {riders.map((r) => (
-              <span className="badge badge-accent" key={r}>
-                + {r}
-              </span>
-            ))}
           </div>
         </div>
         <div className="badges no-print">
@@ -68,13 +68,13 @@ export function IllustrationPage() {
           <div className="card kpi">
             <div className="kpi-label">Sum assured</div>
             <div className="kpi-value">{formatINR(input.sumAssured)}</div>
-            <div className="kpi-sub">Paid on death, plus bonuses</div>
+            <div className="kpi-sub">Paid at the end of year {input.policyTerm}, plus bonuses</div>
           </div>
           <div className="card kpi">
             <div className="kpi-label">{formatFrequency(input.frequency)} premium</div>
             <div className="kpi-value">{formatINR(premium.modalPremium)}</div>
             <div className="kpi-sub">
-              {input.frequency === 'ANNUAL'
+              {premium.instalmentsPerYear === 1
                 ? `paid for ${input.premiumTerm} years`
                 : `per ${FREQUENCY_PER[input.frequency]} · ${formatINR(premium.annualisedPremium)} a year`}
             </div>
@@ -85,7 +85,7 @@ export function IllustrationPage() {
             <div className="kpi-sub">over {input.premiumTerm} years</div>
           </div>
           <div className="card kpi highlight">
-            <div className="kpi-label">Maturity benefit</div>
+            <div className="kpi-label">Total benefit · IRR {formatIrr(summary.irr)}</div>
             <div className="kpi-value">{formatINR(summary.maturityBenefit)}</div>
             <div className="kpi-sub">
               at age {summary.maturityAge} · {multiple.toFixed(2)}× premiums paid
@@ -97,11 +97,11 @@ export function IllustrationPage() {
           <div className="card-header">
             <div>
               <h2>How the policy grows</h2>
-              <p>Death benefit and premiums paid by policy year</p>
+              <p>Premiums paid and bonus accrued by policy year, and the total benefit paid at the end of the term</p>
             </div>
           </div>
           <div className="card-body">
-            <BenefitChart rows={rows} maturityBenefit={summary.maturityBenefit} />
+            <BenefitChart rows={rows} maturityBenefit={summary.maturityBenefit} policyTerm={input.policyTerm} />
           </div>
         </div>
 
@@ -110,8 +110,8 @@ export function IllustrationPage() {
             <div>
               <h2>Year-by-year illustration</h2>
               <p>
-                Premiums stop after year {input.premiumTerm} (dashed line). Valued {formatDate(data.asOf)}, rates{' '}
-                {data.rateVersion}.
+                Premiums stop after year {input.premiumTerm} (dashed line) and the total benefit is paid in year{' '}
+                {input.policyTerm} (highlighted). Valued {formatDate(data.asOf)}, rates {data.rateVersion}.
               </p>
             </div>
           </div>
@@ -120,7 +120,7 @@ export function IllustrationPage() {
               <thead>
                 <tr>
                   {data.columns.map((c, i) => (
-                    <th key={c.key} className={`${c.money ? 'num' : ''}${i === 0 ? ' sticky-col' : ''}`}>
+                    <th key={c.key} className={`${c.format !== 'number' ? 'num' : ''}${i === 0 ? ' sticky-col' : ''}`}>
                       {c.label}
                     </th>
                   ))}
@@ -134,11 +134,12 @@ export function IllustrationPage() {
                     <tr key={row.policyYear} className={isMaturity ? 'row-maturity' : isLastPremium ? 'row-divider' : undefined}>
                       {data.columns.map((c, i) => {
                         const value = row[c.key as keyof typeof row]
-                        const zero = c.money && Number(value) === 0
-                        const cls = [c.money ? 'num' : '', i === 0 ? 'sticky-col' : '', zero ? 'zero' : ''].join(' ').trim()
+                        const numeric = c.format !== 'number'
+                        const zero = numeric && Number(value) === 0
+                        const cls = [numeric ? 'num' : '', i === 0 ? 'sticky-col' : '', zero ? 'zero' : ''].join(' ').trim()
                         return (
                           <td key={c.key} className={cls || undefined}>
-                            {c.money ? (zero ? '–' : formatINR(value)) : value}
+                            {formatCell(c, value)}
                           </td>
                         )
                       })}
@@ -152,8 +153,8 @@ export function IllustrationPage() {
 
         <p className="muted small">
           This illustration is indicative and not a contract. Bonuses are not guaranteed; they are shown at the rates assumed in
-          version {data.rateVersion}. Death benefit is the higher of the sum assured, 10× the annual premium and 105% of
-          premiums paid, plus accrued bonus.
+          version {data.rateVersion}. The total benefit is the sum assured plus the bonus for every year of the bonus schedule,
+          and the IRR is the yearly return on the net cash flows.
         </p>
       </div>
     </>

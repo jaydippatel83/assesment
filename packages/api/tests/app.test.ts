@@ -12,11 +12,11 @@ const validBody = {
   policyTypeCode: 'ENDOWMENT',
   dob: '1990-06-15',
   gender: 'MALE',
-  sumAssured: 1_000_000,
-  policyTerm: 20,
+  sumAssured: 1_200_000,
+  modalPremium: 40_000,
+  policyTerm: 18,
   premiumTerm: 10,
   frequency: 'ANNUAL',
-  riderCodes: ['ADB'],
 };
 
 describe('authentication', () => {
@@ -50,13 +50,15 @@ describe('authentication', () => {
 });
 
 describe('GET /api/policy-types', () => {
-  it('lists products with riders, premium options and table columns', async () => {
+  it('lists products with their limits, premium options and table columns', async () => {
     const res = await request(app).get('/api/policy-types').set(auth);
     expect(res.status).toBe(200);
-    expect(res.body.policyTypes.map((p: { code: string }) => p.code)).toEqual(['ENDOWMENT', 'MONEYBACK']);
-    expect(res.body.policyTypes[0].riders).toHaveLength(3);
-    expect(res.body.policyTypes[0].premiumOptions).toHaveLength(4);
-    expect(res.body.columns[0]).toEqual({ key: 'policyYear', label: 'Policy Year', money: false });
+    expect(res.body.policyTypes.map((p: { code: string }) => p.code)).toEqual(['ENDOWMENT']);
+    expect(res.body.policyTypes[0]).toMatchObject({ minPremium: '10000', maxPremium: '50000', rateVersion: '2026.2' });
+    expect(res.body.policyTypes[0].premiumOptions).toHaveLength(3);
+    expect(res.body.columns.map((c: { label: string }) => c.label)).toEqual([
+      'Policy Year', 'Premium', 'Sum Assured', 'Bonus Rate', 'Bonus Amount', 'Total Benefit', 'Net Cashflows',
+    ]);
   });
 });
 
@@ -65,9 +67,11 @@ describe('POST /api/illustrations/preview', () => {
     const res = await request(app).post('/api/illustrations/preview').set(auth).send(validBody);
     expect(res.status).toBe(200);
     expect(res.body.rows).toHaveLength(20);
-    expect(typeof res.body.rows[0].totalPremium).toBe('string');
+    expect(res.body.rows[0]).toMatchObject({ premium: '40000.00', bonusRate: '0.025', bonusAmount: '30000.00' });
+    expect(res.body.summary).toMatchObject({ maturityBenefit: '2256000.00', totalPremiumPaid: '400000.00' });
+    expect(res.body.summary.irr).toMatch(/^0\.\d{6}$/);
     expect(res.body.input.dob).toBe('••/••/1990');
-    expect(res.body.rateVersion).toBe('2026.1');
+    expect(res.body.rateVersion).toBe('2026.2');
     expect(JSON.stringify(res.body)).not.toContain('1990-06-15');
   });
 
@@ -75,12 +79,13 @@ describe('POST /api/illustrations/preview', () => {
     const res = await request(app)
       .post('/api/illustrations/preview')
       .set(auth)
-      .send({ ...validBody, sumAssured: 50_000, premiumTerm: 25 });
+      .send({ ...validBody, sumAssured: 50_000, premiumTerm: 12, modalPremium: 80_000 });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_FAILED');
     expect(res.body.error.details).toEqual([
-      expect.objectContaining({ field: 'sumAssured', code: 'SUM_ASSURED_RANGE' }),
       expect.objectContaining({ field: 'premiumTerm', code: 'PREMIUM_TERM_RANGE' }),
+      expect.objectContaining({ field: 'modalPremium', code: 'PREMIUM_RANGE' }),
+      expect.objectContaining({ field: 'sumAssured', code: 'SUM_ASSURED_MIN' }),
     ]);
   });
 

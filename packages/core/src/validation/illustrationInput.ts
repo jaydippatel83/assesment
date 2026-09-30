@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ageLastBirthday, isValidIsoDate } from '../calc/age.js';
-import { D } from '../calc/money.js';
+import { D, minOf, type Money } from '../calc/money.js';
 import { FREQUENCIES, GENDERS, type PolicyType } from '../types/policy.js';
 
 export const illustrationInputShape = z.object({
@@ -11,12 +11,15 @@ export const illustrationInputShape = z.object({
     .number({ error: 'Enter the sum assured' })
     .int('Sum assured must be a whole number of rupees')
     .positive('Sum assured must be positive'),
+  modalPremium: z
+    .number({ error: 'Enter the premium' })
+    .int('Premium must be a whole number of rupees')
+    .positive('Premium must be positive'),
   policyTerm: z.number({ error: 'Enter the policy term' }).int('Policy term must be whole years'),
   premiumTerm: z
     .number({ error: 'Enter the premium paying term' })
     .int('Premium paying term must be whole years'),
-  frequency: z.enum(FREQUENCIES, { error: 'Select a premium frequency' }),
-  riderCodes: z.array(z.string()).default([]),
+  frequency: z.enum(FREQUENCIES, { error: 'Premium frequency must be Yearly, Half-Yearly or Monthly' }),
 });
 
 export type IllustrationInput = z.output<typeof illustrationInputShape>;
@@ -25,6 +28,8 @@ type RuleField = keyof IllustrationInput;
 
 export interface ValidationRule {
   id: string;
+  /** Which of the five rules on the product's Inputs sheet this check implements. */
+  sheetRule: 1 | 2 | 3 | 4 | 5;
   field: RuleField;
   check: (input: IllustrationInput, policy: PolicyType, entryAge: number) => boolean;
   message: (policy: PolicyType) => string;
@@ -32,41 +37,73 @@ export interface ValidationRule {
 
 const inr = (value: string) => new Intl.NumberFormat('en-IN').format(Number(value));
 
+export function instalmentsPerYear(policy: PolicyType, frequency: string): number | undefined {
+  return policy.premiumOptions.find((o) => o.frequency === frequency)?.instalmentsPerYear;
+}
+
+/** Smallest sum assured allowed: 10 × the annual premium, but never more than the cap. */
+export function minimumSumAssured(policy: PolicyType, annualPremium: Money): Money {
+  return minOf(annualPremium.times(policy.sumAssuredMultiple), new D(policy.sumAssuredCap));
+}
+
 export const ILLUSTRATION_RULES: readonly ValidationRule[] = [
   {
-    id: 'ENTRY_AGE',
-    field: 'dob',
-    check: (_i, p, age) => age >= p.minAge && age <= p.maxAge,
-    message: (p) => `Age at entry must be between ${p.minAge} and ${p.maxAge} years`,
-  },
-  {
-    id: 'SUM_ASSURED_RANGE',
-    field: 'sumAssured',
-    check: (i, p) => {
-      const sa = new D(i.sumAssured);
-      return sa.gte(p.minSumAssured) && sa.lte(p.maxSumAssured);
-    },
-    message: (p) =>
-      `Sum assured must be between ₹${inr(p.minSumAssured)} and ₹${inr(p.maxSumAssured)}`,
+    id: 'PREMIUM_TERM_RANGE',
+    sheetRule: 1,
+    field: 'premiumTerm',
+    check: (i, p) => i.premiumTerm >= p.minPremiumTerm && i.premiumTerm <= p.maxPremiumTerm,
+    message: (p) => `Premium paying term must be between ${p.minPremiumTerm} and ${p.maxPremiumTerm} years`,
   },
   {
     id: 'POLICY_TERM_RANGE',
+    sheetRule: 1,
     field: 'policyTerm',
     check: (i, p) => i.policyTerm >= p.minTerm && i.policyTerm <= p.maxTerm,
     message: (p) => `Policy term must be between ${p.minTerm} and ${p.maxTerm} years`,
   },
   {
-    id: 'PREMIUM_TERM_RANGE',
-    field: 'premiumTerm',
-    check: (i, p) => i.premiumTerm >= p.minPremiumTerm && i.premiumTerm <= i.policyTerm,
-    message: (p) =>
-      `Premium paying term must be at least ${p.minPremiumTerm} years and cannot exceed the policy term`,
+    id: 'PREMIUM_RANGE',
+    sheetRule: 1,
+    field: 'modalPremium',
+    check: (i, p) => {
+      const premium = new D(i.modalPremium);
+      return premium.gte(p.minPremium) && premium.lte(p.maxPremium);
+    },
+    message: (p) => `Premium must be between ₹${inr(p.minPremium)} and ₹${inr(p.maxPremium)}`,
   },
   {
-    id: 'MATURITY_AGE',
+    id: 'TERM_ORDER',
+    sheetRule: 2,
     field: 'policyTerm',
-    check: (i, p, age) => age + i.policyTerm <= p.maxMaturityAge,
-    message: (p) => `Age at maturity (entry age + policy term) cannot exceed ${p.maxMaturityAge}`,
+    check: (i) => i.policyTerm > i.premiumTerm,
+    message: () => 'Policy term must be longer than the premium paying term',
+  },
+  {
+    id: 'FREQUENCY',
+    sheetRule: 3,
+    field: 'frequency',
+    check: (i, p) => instalmentsPerYear(p, i.frequency) !== undefined,
+    message: (p) => `${p.name} cannot be paid at this frequency`,
+  },
+  {
+    id: 'SUM_ASSURED_MIN',
+    sheetRule: 4,
+    field: 'sumAssured',
+    check: (i, p) => {
+      const perYear = instalmentsPerYear(p, i.frequency);
+      if (perYear === undefined) return true;
+      const annualPremium = new D(i.modalPremium).times(perYear);
+      return new D(i.sumAssured).gte(minimumSumAssured(p, annualPremium));
+    },
+    message: (p) =>
+      `Sum assured must be at least ${p.sumAssuredMultiple}× the annual premium, or ₹${inr(p.sumAssuredCap)} if that is lower`,
+  },
+  {
+    id: 'ENTRY_AGE',
+    sheetRule: 5,
+    field: 'dob',
+    check: (_i, p, age) => age >= p.minAge && age <= p.maxAge,
+    message: (p) => `Age at entry must be between ${p.minAge} and ${p.maxAge} years`,
   },
 ];
 
@@ -74,30 +111,6 @@ export interface ValidationIssue {
   field: string;
   code: string;
   message: string;
-}
-
-function productIssues(input: IllustrationInput, policy: PolicyType): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-  if (!policy.premiumOptions.some((o) => o.frequency === input.frequency)) {
-    issues.push({
-      field: 'frequency',
-      code: 'FREQUENCY_NOT_OFFERED',
-      message: `${policy.name} cannot be paid ${input.frequency.toLowerCase().replace('_', '-')}`,
-    });
-  }
-  const riderCodes = new Set(policy.riders.map((r) => r.code));
-  const unknown = input.riderCodes.filter((c) => !riderCodes.has(c));
-  if (unknown.length > 0) {
-    issues.push({
-      field: 'riderCodes',
-      code: 'RIDER_NOT_OFFERED',
-      message: `Rider not available on ${policy.name}: ${unknown.join(', ')}`,
-    });
-  }
-  if (new Set(input.riderCodes).size !== input.riderCodes.length) {
-    issues.push({ field: 'riderCodes', code: 'DUPLICATE_RIDER', message: 'A rider was selected twice' });
-  }
-  return issues;
 }
 
 export function validateIllustration(
@@ -109,10 +122,11 @@ export function validateIllustration(
     return [{ field: 'policyTypeCode', code: 'POLICY_MISMATCH', message: 'Unknown policy type' }];
   }
   const entryAge = ageLastBirthday(input.dob, asOf);
-  const ruleIssues = ILLUSTRATION_RULES.filter((r) => !r.check(input, policy, entryAge)).map(
-    (r) => ({ field: r.field, code: r.id, message: r.message(policy) }),
-  );
-  return [...ruleIssues, ...productIssues(input, policy)];
+  return ILLUSTRATION_RULES.filter((r) => !r.check(input, policy, entryAge)).map((r) => ({
+    field: r.field,
+    code: r.id,
+    message: r.message(policy),
+  }));
 }
 
 export function createIllustrationSchema(policy: PolicyType | undefined, asOf: string) {

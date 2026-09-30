@@ -5,7 +5,7 @@ import type { IllustrationListItem, PolicyTypeView } from '../api/types'
 import { Alert, PageLoading } from '../components/Field'
 import { Icon } from '../components/Icon'
 import { PageHeader } from '../components/PageHeader'
-import { formatDate, formatFrequency, formatINR, formatINRCompact } from '../lib/format'
+import { formatDate, formatFrequency, formatINR, formatINRCompact, formatIrr } from '../lib/format'
 
 export function HistoryPage() {
   const [items, setItems] = useState<IllustrationListItem[] | null>(null)
@@ -88,7 +88,6 @@ export function HistoryPage() {
               <IllustrationRow
                 key={item.id}
                 item={item}
-                plan={policyTypes.find((p) => p.code === item.policyType.code)}
                 open={openId === item.id}
                 onToggle={() => setOpenId(openId === item.id ? null : item.id)}
               />
@@ -107,28 +106,17 @@ export function HistoryPage() {
 
 function IllustrationRow({
   item,
-  plan,
   open,
   onToggle,
 }: {
   item: IllustrationListItem
-  plan: PolicyTypeView | undefined
   open: boolean
   onToggle: () => void
 }) {
   const navigate = useNavigate()
   const startYear = Number(item.asOf.slice(0, 4))
   const maturesYear = startYear + item.policyTerm
-  const sumAssured = Number(item.sumAssured)
   const view = () => navigate(`/illustration/${item.id}`)
-
-  const coverage = [
-    { name: 'Base cover (sum assured)', cover: sumAssured },
-    ...item.riderCodes.map((code) => {
-      const rider = plan?.riders.find((r) => r.code === code)
-      return { name: rider?.name ?? code, cover: sumAssured * Number(rider?.coverPct ?? 0) }
-    }),
-  ]
 
   return (
     <div className={`row${open ? ' open' : ''}`}>
@@ -179,19 +167,22 @@ function IllustrationRow({
           <table className="detail-table">
             <thead>
               <tr>
-                <th>Coverage</th>
-                <th>Cover</th>
-                <th className="col-3">Premiums paid for</th>
+                <th>Item</th>
+                <th>Amount</th>
+                <th className="col-3">Term</th>
               </tr>
             </thead>
             <tbody>
-              {coverage.map((c) => (
-                <tr key={c.name}>
-                  <td>{c.name}</td>
-                  <td>{formatINR(c.cover)}</td>
-                  <td className="col-3">{item.premiumTerm} years</td>
-                </tr>
-              ))}
+              <tr>
+                <td>Sum assured</td>
+                <td>{formatINR(item.sumAssured)}</td>
+                <td className="col-3">{item.policyTerm} years</td>
+              </tr>
+              <tr>
+                <td>{formatFrequency(item.frequency)} premium</td>
+                <td>{formatINR(item.modalPremium)}</td>
+                <td className="col-3">{item.premiumTerm} years</td>
+              </tr>
               <tr>
                 <td>Total premiums</td>
                 <td>{formatINR(item.totalPremium)}</td>
@@ -200,10 +191,10 @@ function IllustrationRow({
             </tbody>
           </table>
           <div className="bill">
-            <div className="bill-label">Maturity benefit</div>
+            <div className="bill-label">Total benefit</div>
             <div className="bill-amount">{formatINR(item.maturityBenefit)}</div>
             <div className="bill-sub">
-              at age {item.entryAge + item.policyTerm}, in {maturesYear}
+              at age {item.entryAge + item.policyTerm}, in {maturesYear} · IRR {formatIrr(item.irr)}
             </div>
             <button type="button" className="btn btn-primary" onClick={view}>
               See illustration <Icon name="arrowUpRight" size={16} />

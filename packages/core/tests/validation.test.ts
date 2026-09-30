@@ -4,13 +4,14 @@ import {
   ILLUSTRATION_RULES,
   validateIllustration,
   type IllustrationInput,
+  type PolicyType,
 } from '../src/index.js';
-import { AS_OF, endowment, moneyBack, validInput } from './fixtures.js';
+import { AS_OF, endowment, sheetInput, validInput } from './fixtures.js';
 
 const policy = endowment.policyType;
 
-function codes(overrides: Partial<IllustrationInput>) {
-  return validateIllustration({ ...validInput, ...overrides }, policy, AS_OF).map((i) => i.code);
+function codes(overrides: Partial<IllustrationInput>, on: PolicyType = policy) {
+  return validateIllustration({ ...validInput, ...overrides }, on, AS_OF).map((i) => i.code);
 }
 
 function expectRule(overrides: Partial<IllustrationInput>, rule: string, fails: boolean) {
@@ -19,87 +20,103 @@ function expectRule(overrides: Partial<IllustrationInput>, rule: string, fails: 
   else expect(result).not.toContain(rule);
 }
 
-it('defines exactly five business rules', () => {
-  expect(ILLUSTRATION_RULES).toHaveLength(5);
+it('implements all five rules from the Inputs sheet', () => {
+  expect([...new Set(ILLUSTRATION_RULES.map((r) => r.sheetRule))]).toEqual([1, 2, 3, 4, 5]);
 });
 
 it('accepts a valid input with no issues', () => {
   expect(codes({})).toEqual([]);
 });
 
-describe('rule 1: entry age between 18 and 55', () => {
-  it.each([
-    ['exactly 18 today', '2008-09-24', false],
-    ['one day short of 18', '2008-09-25', true],
-    ['55, birthday today', '1971-09-24', false],
-    ['56, birthday today', '1970-09-24', true],
-  ])('%s', (_label, dob, fails) => {
-    expectRule({ dob, policyTerm: 10, premiumTerm: 10 }, 'ENTRY_AGE', fails);
-  });
+it('rejects the sheet’s own example, whose ₹80,000 premium is over the ₹50,000 maximum', () => {
+  expect(validateIllustration(sheetInput, policy, AS_OF).map((i) => i.code)).toEqual(['PREMIUM_RANGE']);
 });
 
-describe('rule 2: sum assured between 1,00,000 and 1,00,00,000', () => {
+describe('rule 1: PPT 5–10, PT 10–20, premium ₹10,000–₹50,000', () => {
   it.each([
-    [100_000, false],
-    [99_999, true],
-    [10_000_000, false],
-    [10_000_001, true],
-  ])('%d', (sumAssured, fails) => {
-    expectRule({ sumAssured }, 'SUM_ASSURED_RANGE', fails);
+    [5, false],
+    [4, true],
+    [10, false],
+    [11, true],
+  ])('PPT %d', (premiumTerm, fails) => {
+    expectRule({ premiumTerm, policyTerm: 18 }, 'PREMIUM_TERM_RANGE', fails);
   });
-});
 
-describe('rule 3: policy term between 10 and 30 years', () => {
   it.each([
     [10, false],
     [9, true],
-    [30, false],
-    [31, true],
-  ])('%d years', (policyTerm, fails) => {
+    [20, false],
+    [21, true],
+  ])('PT %d', (policyTerm, fails) => {
     expectRule({ policyTerm, premiumTerm: 5 }, 'POLICY_TERM_RANGE', fails);
   });
-});
 
-describe('rule 4: premium term at least 5 and not more than the policy term', () => {
   it.each([
-    ['PPT 5', 5, false],
-    ['PPT 4', 4, true],
-    ['PPT equal to PT', 20, false],
-    ['PPT one more than PT', 21, true],
-  ])('%s (PT 20)', (_label, premiumTerm, fails) => {
-    expectRule({ policyTerm: 20, premiumTerm }, 'PREMIUM_TERM_RANGE', fails);
+    [10_000, false],
+    [9_999, true],
+    [50_000, false],
+    [50_001, true],
+  ])('premium %d', (modalPremium, fails) => {
+    expectRule({ modalPremium }, 'PREMIUM_RANGE', fails);
+  });
+
+  it('checks the limit against the instalment, not the annual total', () => {
+    expectRule({ modalPremium: 10_000, frequency: 'MONTHLY', sumAssured: 1_200_000 }, 'PREMIUM_RANGE', false);
   });
 });
 
-describe('rule 5: age at maturity at most 75 (cross-field)', () => {
+describe('rule 2: PT greater than PPT', () => {
   it.each([
-    ['50 + 25 = 75', 25, false],
-    ['50 + 26 = 76', 26, true],
+    ['PT 11, PPT 10', 11, false],
+    ['PT 10, PPT 10', 10, true],
   ])('%s', (_label, policyTerm, fails) => {
-    expectRule({ dob: '1976-09-24', policyTerm, premiumTerm: 10 }, 'MATURITY_AGE', fails);
+    expectRule({ policyTerm, premiumTerm: 10 }, 'TERM_ORDER', fails);
+  });
+});
+
+describe('rule 3: premium frequency is Yearly, Half-Yearly or Monthly', () => {
+  it('rejects quarterly before running the rules', () => {
+    const result = createIllustrationSchema(policy, AS_OF).safeParse({ ...validInput, frequency: 'QUARTERLY' });
+    expect(result.error?.issues.map((i) => i.path.join('.'))).toEqual(['frequency']);
+  });
+
+  it('rejects a frequency the plan does not offer', () => {
+    const yearlyOnly = { ...policy, premiumOptions: policy.premiumOptions.slice(0, 1) };
+    expect(codes({ frequency: 'MONTHLY' }, yearlyOnly)).toEqual(['FREQUENCY']);
+  });
+});
+
+describe('rule 4: sum assured at least the lower of 10× annual premium and ₹50,00,000', () => {
+  it.each([
+    ['yearly ₹40,000 needs ₹4,00,000', 40_000, 'ANNUAL', 400_000, false],
+    ['yearly ₹40,000, ₹1 short', 40_000, 'ANNUAL', 399_999, true],
+    ['half-yearly ₹30,000 (₹60,000 a year) needs ₹6,00,000', 30_000, 'SEMI_ANNUAL', 600_000, false],
+    ['half-yearly ₹30,000, ₹1 short', 30_000, 'SEMI_ANNUAL', 599_999, true],
+    ['monthly ₹50,000 (₹6,00,000 a year) is capped at ₹50,00,000', 50_000, 'MONTHLY', 5_000_000, false],
+    ['monthly ₹50,000, ₹1 under the cap', 50_000, 'MONTHLY', 4_999_999, true],
+  ] as const)('%s', (_label, modalPremium, frequency, sumAssured, fails) => {
+    expectRule({ modalPremium, frequency, sumAssured }, 'SUM_ASSURED_MIN', fails);
+  });
+});
+
+describe('rule 5: entry age between 23 and 56', () => {
+  it.each([
+    ['exactly 23 today', '2003-09-24', false],
+    ['one day short of 23', '2003-09-25', true],
+    ['56, birthday today', '1970-09-24', false],
+    ['57, birthday today', '1969-09-24', true],
+  ])('%s', (_label, dob, fails) => {
+    expectRule({ dob }, 'ENTRY_AGE', fails);
   });
 });
 
 it('reports every failing rule at once, not just the first', () => {
-  expect(
-    codes({ dob: '2010-01-01', sumAssured: 50_000, policyTerm: 40, premiumTerm: 41 }),
-  ).toEqual(['ENTRY_AGE', 'SUM_ASSURED_RANGE', 'POLICY_TERM_RANGE', 'PREMIUM_TERM_RANGE']);
-});
-
-describe('product checks', () => {
-  it('rejects a frequency the product does not offer', () => {
-    const input = { ...validInput, policyTypeCode: 'MONEYBACK', sumAssured: 500_000, policyTerm: 15, premiumTerm: 10, frequency: 'QUARTERLY' as const };
-    const result = validateIllustration(input, moneyBack.policyType, AS_OF).map((i) => i.code);
-    expect(result).toEqual(['FREQUENCY_NOT_OFFERED']);
-  });
-
-  it('rejects a rider the product does not offer', () => {
-    expect(codes({ riderCodes: ['ADB', 'XYZ'] })).toEqual(['RIDER_NOT_OFFERED']);
-  });
-
-  it('rejects a duplicated rider', () => {
-    expect(codes({ riderCodes: ['ADB', 'ADB'] })).toEqual(['DUPLICATE_RIDER']);
-  });
+  expect(codes({ dob: '2010-01-01', modalPremium: 5_000, policyTerm: 25, premiumTerm: 12 })).toEqual([
+    'PREMIUM_TERM_RANGE',
+    'POLICY_TERM_RANGE',
+    'PREMIUM_RANGE',
+    'ENTRY_AGE',
+  ]);
 });
 
 describe('createIllustrationSchema', () => {
@@ -110,15 +127,15 @@ describe('createIllustrationSchema', () => {
   });
 
   it('maps rule failures onto the offending field', () => {
-    const result = schema.safeParse({ ...validInput, premiumTerm: 25 });
+    const result = schema.safeParse({ ...validInput, premiumTerm: 12 });
     expect(result.success).toBe(false);
     expect(result.error?.issues.map((i) => i.path.join('.'))).toEqual(['premiumTerm']);
   });
 
   it('rejects wrong types before running business rules', () => {
-    const result = schema.safeParse({ ...validInput, sumAssured: '100000', dob: '2000-02-30' });
+    const result = schema.safeParse({ ...validInput, modalPremium: '40000', dob: '2000-02-30' });
     expect(result.success).toBe(false);
-    expect(result.error?.issues.map((i) => i.path[0]).sort()).toEqual(['dob', 'sumAssured']);
+    expect(result.error?.issues.map((i) => i.path[0]).sort()).toEqual(['dob', 'modalPremium']);
   });
 
   it('rejects an unknown policy type', () => {

@@ -1,20 +1,11 @@
-export const FREQUENCIES = ['ANNUAL', 'SEMI_ANNUAL', 'QUARTERLY', 'MONTHLY'] as const;
+export const FREQUENCIES = ['ANNUAL', 'SEMI_ANNUAL', 'MONTHLY'] as const;
 export type Frequency = (typeof FREQUENCIES)[number];
 
 export const GENDERS = ['MALE', 'FEMALE', 'OTHER'] as const;
 export type Gender = (typeof GENDERS)[number];
 
-export interface Rider {
-  code: string;
-  name: string;
-  description: string;
-  ratePerMille: string;
-  coverPct: string;
-}
-
 export interface PremiumOption {
   frequency: Frequency;
-  modalFactor: string;
   instalmentsPerYear: number;
 }
 
@@ -27,32 +18,19 @@ export interface PolicyType {
   minTerm: number;
   maxTerm: number;
   minPremiumTerm: number;
-  maxMaturityAge: number;
-  minSumAssured: string;
-  maxSumAssured: string;
-  riders: Rider[];
+  maxPremiumTerm: number;
+  minPremium: string;
+  maxPremium: string;
+  sumAssuredMultiple: string;
+  sumAssuredCap: string;
   premiumOptions: PremiumOption[];
-}
-
-export interface AgeBandRate {
-  minAge: number;
-  maxAge: number;
-  ratePerMille: string;
-}
-
-export interface SurrenderFactor {
-  fromYear: number;
-  factor: string;
 }
 
 export interface RateTable {
   policyTypeCode: string;
   version: string;
-  premiumRates: AgeBandRate[];
-  femaleAgeSetback: number;
-  reversionaryBonusRate: string;
-  terminalBonusRate: string;
-  surrenderFactors: SurrenderFactor[];
+  /** Bonus rate as a fraction of the sum assured, one entry per policy year starting at year 1. */
+  bonusRates: string[];
 }
 
 export interface Product {

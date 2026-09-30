@@ -4,146 +4,124 @@ import {
   D,
   generateIllustration,
   InvalidIllustrationError,
-  lookupPremiumRate,
+  irr,
   RateNotFoundError,
   toIllustrationDTO,
   type IllustrationInput,
 } from '../src/index.js';
-import { AS_OF, endowment, validInput } from './fixtures.js';
+import { AS_OF, endowment, sheetInput, validInput } from './fixtures.js';
 
 const { policyType, rates } = endowment;
-const run = (overrides: Partial<IllustrationInput> = {}) =>
-  toIllustrationDTO(generateIllustration({ ...validInput, ...overrides }, policyType, rates, AS_OF));
+const run = (overrides: Partial<IllustrationInput> = {}, base = sheetInput) =>
+  toIllustrationDTO(generateIllustration({ ...base, ...overrides }, policyType, rates, AS_OF));
 
-describe('golden case: ENDOWMENT, male 30, SA 10L, PT 20, PPT 10, annual', () => {
+describe('golden case: the Illustrations sheet (SA 12L, ₹80,000 yearly, PT 18, PPT 10)', () => {
   const result = run();
 
-  it('prices the premium', () => {
-    expect(result.premium.entryAge).toBe(30);
-    expect(result.premium.ratePerMille).toBe('40.2');
-    expect(result.premium.modalPremium).toBe('80400.00');
-    expect(result.premium.annualisedPremium).toBe('80400.00');
-  });
-
-  it('has one row per policy year, with ages from entry age', () => {
+  it('has one row per year of the bonus schedule', () => {
     expect(result.rows).toHaveLength(20);
-    expect(result.rows[0]).toMatchObject({ policyYear: 1, age: 30 });
-    expect(result.rows[19]).toMatchObject({ policyYear: 20, age: 49 });
+    expect(result.rows.map((r) => r.policyYear)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
   });
 
-  it('year 1', () => {
-    expect(result.rows[0]).toMatchObject({
-      totalPremium: '80400.00',
-      cumulativePremium: '80400.00',
-      bonus: '45000.00',
-      accruedBonus: '45000.00',
-      deathBenefit: '1045000.00',
-      surrenderValue: '0.00',
-      maturityBenefit: '0.00',
-      netCashflow: '-80400.00',
-    });
+  it('matches every row of the sheet', () => {
+    const sheet: [string, string, string, string, string, string][] = [
+      ['80000.00', '0.00', '0.025', '30000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.03', '36000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.035', '42000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.035', '42000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.035', '42000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.035', '42000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.03', '36000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.03', '36000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.03', '36000.00', '0.00', '-80000.00'],
+      ['80000.00', '0.00', '0.03', '36000.00', '0.00', '-80000.00'],
+      ['0.00', '0.00', '0.03', '36000.00', '0.00', '0.00'],
+      ['0.00', '0.00', '0.025', '30000.00', '0.00', '0.00'],
+      ['0.00', '0.00', '0.03', '36000.00', '0.00', '0.00'],
+      ['0.00', '0.00', '0.03', '36000.00', '0.00', '0.00'],
+      ['0.00', '0.00', '0.025', '30000.00', '0.00', '0.00'],
+      ['0.00', '0.00', '0.05', '60000.00', '0.00', '0.00'],
+      ['0.00', '0.00', '0.04', '48000.00', '0.00', '0.00'],
+      ['0.00', '1200000.00', '0.045', '54000.00', '2256000.00', '2256000.00'],
+      ['0.00', '0.00', '0.04', '48000.00', '0.00', '0.00'],
+      ['0.00', '0.00', '0.25', '300000.00', '0.00', '0.00'],
+    ];
+    expect(
+      result.rows.map((r) => [r.premium, r.sumAssured, r.bonusRate, r.bonusAmount, r.totalBenefit, r.netCashflow]),
+    ).toEqual(sheet);
   });
 
-  it('year 10, the last premium year', () => {
-    expect(result.rows[9]).toMatchObject({
-      totalPremium: '80400.00',
-      cumulativePremium: '804000.00',
-      accruedBonus: '450000.00',
-      deathBenefit: '1450000.00',
-      surrenderValue: '482400.00',
-    });
-  });
-
-  it('year 11, premiums have stopped', () => {
-    expect(result.rows[10]).toMatchObject({
-      totalPremium: '0.00',
-      cumulativePremium: '804000.00',
-      netCashflow: '0.00',
-    });
-  });
-
-  it('year 20, maturity', () => {
-    expect(result.rows[19]).toMatchObject({
-      accruedBonus: '900000.00',
-      maturityBenefit: '2035000.00',
-      surrenderValue: '0.00',
-      netCashflow: '2035000.00',
-    });
+  it('gives the sheet’s IRR of 8.4%', () => {
+    expect(result.summary.irr).toBe('0.084150');
+    expect(new D(result.summary.irr!).times(100).toDecimalPlaces(1).toString()).toBe('8.4');
   });
 
   it('summary', () => {
     expect(result.summary).toEqual({
-      totalPremiumPaid: '804000.00',
-      maturityBenefit: '2035000.00',
-      maturityAge: 50,
+      totalPremiumPaid: '800000.00',
+      totalBonus: '1056000.00',
+      maturityBenefit: '2256000.00',
+      maturityAge: 44,
+      irr: '0.084150',
     });
-    expect(result.rateVersion).toBe('2026.1');
+    expect(result.premium).toEqual({
+      entryAge: 26,
+      modalPremium: '80000.00',
+      instalmentsPerYear: 1,
+      annualisedPremium: '80000.00',
+    });
+    expect(result.rateVersion).toBe('2026.2');
   });
 });
 
-describe('premium calculation', () => {
-  it('rates a female three years younger', () => {
-    const premium = calculatePremium(
-      { ...validInput, gender: 'FEMALE', dob: '1999-01-15' },
-      policyType,
-      rates,
-      AS_OF,
-    );
-    expect(premium.entryAge).toBe(27);
-    expect(premium.ratingAge).toBe(24);
-    expect(premium.ratePerMille.toString()).toBe('38.5');
+describe('premium frequency', () => {
+  it('annualises a half-yearly premium', () => {
+    const result = run({ modalPremium: 20_000, frequency: 'SEMI_ANNUAL' }, validInput);
+    expect(result.premium.annualisedPremium).toBe('40000.00');
+    expect(result.rows[0]!.premium).toBe('40000.00');
+    expect(result.summary.totalPremiumPaid).toBe('400000.00');
   });
 
-  it('prices riders and a monthly frequency, rounding the instalment to paise', () => {
-    const result = run({
-      dob: '1986-01-15',
-      sumAssured: 500_000,
-      policyTerm: 15,
-      premiumTerm: 15,
-      frequency: 'MONTHLY',
-      riderCodes: ['ADB', 'CI'],
-    });
-    expect(result.premium.annualBasePremium).toBe('21900.00');
-    expect(result.premium.annualRiderPremium).toBe('850.00');
-    expect(result.premium.modalPremium).toBe('1990.63');
-    expect(result.premium.annualisedPremium).toBe('23887.56');
-    expect(result.rows[0]).toMatchObject({
-      basePremium: '22995.06',
-      riderPremium: '892.50',
-      totalPremium: '23887.56',
-    });
+  it('annualises a monthly premium', () => {
+    const premium = calculatePremium({ ...validInput, modalPremium: 12_345, frequency: 'MONTHLY' }, policyType, AS_OF);
+    expect(premium.instalmentsPerYear).toBe(12);
+    expect(premium.annualisedPremium.toString()).toBe('148140');
+  });
+});
+
+describe('maturity year follows the policy term', () => {
+  it('pays the total benefit in the policy term year only', () => {
+    const result = run({ policyTerm: 12, premiumTerm: 6 });
+    const paid = result.rows.filter((r) => r.totalBenefit !== '0.00');
+    expect(paid.map((r) => r.policyYear)).toEqual([12]);
+    expect(result.rows[11]).toMatchObject({ sumAssured: '1200000.00', totalBenefit: '2256000.00' });
+    expect(result.summary.maturityAge).toBe(26 + 12);
+  });
+});
+
+describe('irr', () => {
+  it('is null when the cash flows never change sign', () => {
+    expect(irr([new D(-100), new D(-100)])).toBeNull();
+    expect(irr([new D(0), new D(100)])).toBeNull();
   });
 
-  it('adds premiums with no floating-point drift', () => {
-    let floatSum = 0;
-    for (let i = 0; i < 12; i++) floatSum += 1990.63;
-    expect(floatSum).not.toBe(23887.56);
-
-    const result = run({
-      dob: '1986-01-15',
-      sumAssured: 500_000,
-      policyTerm: 15,
-      premiumTerm: 15,
-      frequency: 'MONTHLY',
-      riderCodes: ['ADB', 'CI'],
-    });
-    expect(result.premium.annualisedPremium).toBe('23887.56');
-    expect(result.summary.totalPremiumPaid).toBe('358313.40');
-    expect(new D(result.summary.totalPremiumPaid).equals(new D('1990.63').times(12).times(15))).toBe(true);
+  it('solves a simple case exactly', () => {
+    expect(irr([new D(-100), new D(110)])!.toDecimalPlaces(8).toString()).toBe('0.1');
   });
 });
 
 describe('failure modes', () => {
-  it('throws on a missing rate instead of pricing at zero', () => {
-    expect(() => lookupPremiumRate(rates, 70)).toThrow(RateNotFoundError);
+  it('throws when the bonus schedule is shorter than the policy term', () => {
+    const short = { ...rates, bonusRates: rates.bonusRates.slice(0, 15) };
+    expect(() => generateIllustration(sheetInput, policyType, short, AS_OF)).toThrow(RateNotFoundError);
   });
 
-  it('refuses a premium term longer than the policy term', () => {
-    expect(() => run({ premiumTerm: 21 })).toThrow(InvalidIllustrationError);
+  it('refuses a premium term that is not shorter than the policy term', () => {
+    expect(() => run({ premiumTerm: 18 })).toThrow(InvalidIllustrationError);
   });
 
   it('refuses mismatched product and input', () => {
-    expect(() => run({ policyTypeCode: 'MONEYBACK' })).toThrow(InvalidIllustrationError);
+    expect(() => run({ policyTypeCode: 'OTHER' })).toThrow(InvalidIllustrationError);
   });
 
   it('is deterministic: same input and date give the same output', () => {

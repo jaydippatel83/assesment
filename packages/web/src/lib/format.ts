@@ -26,20 +26,20 @@ export function amountInWords(value: number) {
 }
 
 export const FREQUENCY_LABEL: Record<string, string> = {
-  ANNUAL: 'Annual',
+  ANNUAL: 'Yearly',
   SEMI_ANNUAL: 'Half-yearly',
-  QUARTERLY: 'Quarterly',
   MONTHLY: 'Monthly',
 }
 export const FREQUENCY_PER: Record<string, string> = {
   ANNUAL: 'year',
   SEMI_ANNUAL: 'half-year',
-  QUARTERLY: 'quarter',
   MONTHLY: 'month',
 }
 export const formatFrequency = (f: string) => FREQUENCY_LABEL[f] ?? f
 
 export const formatPct = (fraction: string) => `${(Number(fraction) * 100).toFixed(2).replace(/\.?0+$/, '')}%`
+
+export const formatIrr = (fraction: string | null) => (fraction === null ? '–' : `${(Number(fraction) * 100).toFixed(2)}%`)
 
 export const formatDate = (iso: string) =>
   new Date(iso.length === 10 ? `${iso}T00:00:00` : iso).toLocaleDateString('en-IN', { dateStyle: 'medium' })

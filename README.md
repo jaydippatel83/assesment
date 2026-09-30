@@ -1,6 +1,6 @@
 # Benefit Illustration Module
 
-A full-stack web app that prices a life insurance policy and shows what it pays back, year by year. A customer registers, picks a plan, enters the policyholder's details, and gets a live premium quote. They can then save a full benefit illustration: a year-by-year table and chart of premiums, bonuses, death benefit, surrender value and maturity benefit.
+A full-stack web app that shows what a life insurance policy pays back, year by year. A customer registers, picks a plan, enters the policyholder's details, premium and sum assured, and sees the total benefit and IRR update live. They can then save a full benefit illustration: a year-by-year table and chart of premiums, bonuses, the total benefit and net cash flows.
 
 | Layer | Technology |
 | --- | --- |
@@ -10,9 +10,9 @@ A full-stack web app that prices a life insurance policy and shows what it pays 
 | Validation | Zod: one set of schemas, shared by the browser and the server |
 | Money | decimal.js: exact decimal arithmetic, never JavaScript floats |
 | Auth and security | bcrypt, JWT, AES-256-GCM field encryption, helmet, rate limiting |
-| Tests | Vitest and Supertest (101 tests) |
+| Tests | Vitest and Supertest (109 tests) |
 
-> **About the calculation rules.** The assignment's spreadsheet (Inputs and Illustrations sheets) could not be opened: the shared link returns "Page not found". The five input validations, the premium formula and the illustration columns are therefore reasonable, clearly isolated stand-ins. Section 7 lists exactly which files to change once the spreadsheet is available.
+> **About the calculation rules.** The five input validations, the bonus schedule and the illustration columns come from the assignment's Inputs and Illustrations sheets, and the engine reproduces the sheet's example to the rupee (IRR 8.4%). The sheet has three quirks, and section 6 says how each is handled: the total benefit includes bonuses for years after the policy term, the example's premium breaks its own premium limit, and the sum assured rule is worded ambiguously.
 
 ---
 
@@ -42,9 +42,9 @@ A full-stack web app that prices a life insurance policy and shows what it pays 
 | Screen | Route | Purpose |
 | --- | --- | --- |
 | Login / Register | `/login` | Create an account or sign in |
-| New illustration (Policy Calculation) | `/calculate` | Choose a plan, enter details, see a live quote, generate an illustration |
+| New illustration (Policy Calculation) | `/calculate` | Choose a plan, enter details, see the benefit and IRR live, generate an illustration |
 | Illustration | `/illustration/:id` | Summary figures, a benefit chart, and the year-by-year table |
-| Saved illustrations | `/history` | Every saved illustration, filterable by plan, each expandable to show its coverage |
+| Saved illustrations | `/history` | Every saved illustration, filterable by plan, each expandable to show its premium, cover and IRR |
 | Profile | `/profile` | Your masked personal details, with a password-protected option to reveal them |
 | How it works | `/how-it-works` | The eligibility rules and every formula, in plain language |
 
@@ -61,8 +61,8 @@ assesments/
 ├─ packages/
 │  ├─ core/                 Pure calculation library, with no database, network or clock
 │  │  ├─ src/
-│  │  │  ├─ types/          PolicyType, Rider, PremiumOption, RateTable, Product
-│  │  │  ├─ calc/           age.ts, money.ts, illustration.ts (the engine)
+│  │  │  ├─ types/          PolicyType, PremiumOption, RateTable, Product
+│  │  │  ├─ calc/           age.ts, money.ts, irr.ts, illustration.ts (the engine)
 │  │  │  ├─ validation/     illustrationInput.ts (the 5 rules), auth.ts (register and login schemas)
 │  │  │  └─ data/           sampleProducts.ts (the sample catalogue)
 │  │  └─ tests/             age, validation and engine tests
@@ -134,7 +134,7 @@ npm run setup
 This one command does three things:
 1. `docker compose up -d --wait` starts PostgreSQL on port **5433**. It uses 5433 rather than 5432 so it doesn't clash with any other local Postgres.
 2. `prisma migrate deploy` creates the tables.
-3. `prisma db seed` loads two sample plans, with their riders, premium options and rate tables.
+3. `prisma db seed` loads the plan from the spreadsheet, with its premium options and bonus schedule.
 
 **Step 4: Run the app**
 
@@ -150,7 +150,7 @@ This starts the API on http://localhost:4000 and the web app on http://localhost
 
 | Command | What it does |
 | --- | --- |
-| `npm test` | Runs all 101 unit and API tests |
+| `npm test` | Runs all 109 unit and API tests |
 | `npm run typecheck` | Type-checks all packages and builds the web app |
 | `npm run bulk -- in.csv out.csv` | Runs the bulk illustration runner (see section 11) |
 | `npm run db:down` | Stops the database container |
@@ -161,27 +161,27 @@ This starts the API on http://localhost:4000 and the web app on http://localhost
 
 **Step 1: Register.** Enter your full name, email, date of birth, mobile number and a password. Validation runs as you leave each field. When you submit, your personal details are encrypted before they reach the database (section 9), and you're signed in straight away.
 
-**Step 2: Choose a plan.** The calculation page shows each plan as a card with its limits: entry age, policy term and sum-assured range. Open **Plan details** on the right to see all the limits and the payment-frequency factors.
+**Step 2: Choose a plan.** The calculation page shows each plan as a card with its limits: entry age, policy term and premium range. Open **Plan details** on the right to see all the limits.
 
 **Step 3: Enter the policyholder's details.**
 - **Date of birth.** The form immediately shows the age at last birthday.
 - **Gender.**
-- **Sum assured.** Shown back in words ("10 lakh") so zeros are easy to check.
+- **Payment frequency:** yearly, half-yearly or monthly.
+- **Premium** per instalment, with the yearly total shown for half-yearly and monthly payments.
+- **Sum assured.** Shown back in words ("12 lakh") so zeros are easy to check, with the minimum allowed for the premium entered.
 - **Policy term and premium paying term**, each with its allowed range underneath.
-- **Payment frequency:** annual, half-yearly, quarterly or monthly, depending on the plan.
-- **Riders (optional):** add-on covers, each showing its cover amount and yearly cost.
 
-**Step 4: Read the live quote.** As soon as every input passes the plan's rules, the **Your premium** panel shows the instalment, the rider costs, total premiums and the maturity benefit. It recalculates 350 ms after you stop typing, and nothing is saved at this stage. If an input breaks a rule, the field turns red and shows which rule.
+**Step 4: Read the live result.** As soon as every input passes the rules, the panel on the right shows the total benefit, the premium, total premiums, total bonus and the IRR. It recalculates 350 ms after you stop typing, and nothing is saved at this stage. If an input breaks a rule, the field turns red and shows which rule.
 
 **Step 5: Generate the illustration.** Click **Generate illustration**. The server validates and calculates again, saves the illustration, and opens the Illustration page.
 
 **Step 6: Read the illustration.**
-- **Summary cards:** sum assured, premium, total premiums, and the maturity benefit (with how many times the premiums it pays back).
-- **Chart:** death benefit and premiums paid for each policy year, with the maturity payout marked. Hover over it to see every value for a year.
-- **Table:** every policy year, with each column explained in section 6. A dashed line marks the year premiums stop, and the maturity year is highlighted.
+- **Summary cards:** sum assured, premium, total premiums, and the total benefit with its IRR and how many times the premiums it pays back.
+- **Chart:** premiums paid and bonus accrued for each policy year, with the total benefit marked in the policy term year. Hover over it to see every value for a year.
+- **Table:** the spreadsheet's columns for every year of the bonus schedule, explained in section 6. A dashed line marks the year premiums stop, and the policy term year is highlighted.
 - **Print** produces a clean printed copy.
 
-**Step 7: Review saved illustrations.** **Saved illustrations** lists everything you've generated, with tabs for each plan. Click a row to expand it and see its coverage breakdown and maturity benefit.
+**Step 7: Review saved illustrations.** **Saved illustrations** lists everything you've generated, with tabs for each plan. Click a row to expand it and see its sum assured, premium, total benefit and IRR.
 
 **Step 8: View your profile.** Your details are shown masked (`R••• S•••••`, `••••••3210`). To see them in full, re-enter your password. Each reveal is recorded in the audit log.
 
@@ -196,8 +196,8 @@ These are the steps between typing a value and seeing a number:
 3. **The server authenticates.** The `requireAuth` middleware checks the JWT's signature, issuer, audience and expiry.
 4. **The server validates again.** The client can't be trusted, so the API validates the field types first, then loads the plan from the catalogue and runs the five rules. Any failure returns HTTP 400 with every problem listed against its field.
 5. **The server fixes the valuation date.** "Today" is taken in the `Asia/Kolkata` timezone, so a server running in UTC can't get a customer's age wrong on their birthday.
-6. **The engine calculates.** `generateIllustration(input, plan, rates, today)` runs entirely in memory and returns the premium breakdown, one row per policy year, and a summary.
-7. **The server sends the result.** Every money value goes out as a string with two decimal places (`"80400.00"`), because JSON numbers are floats and could lose paise.
+6. **The engine calculates.** `generateIllustration(input, plan, rates, today)` runs entirely in memory and returns the premium, one row per year of the bonus schedule, and a summary with the IRR.
+7. **The server sends the result.** Every money value goes out as a string with two decimal places (`"80000.00"`), because JSON numbers are floats and could lose paise. Rates go out as exact fractions: bonus rates as given (`"0.025"`), the IRR to six places (`"0.084150"`).
 8. **Saving is a separate request.** `POST /api/illustrations` repeats steps 3–7, then stores the **inputs**, the valuation date and the rate-table version. It doesn't store the output rows.
 9. **Reopening regenerates the illustration.** `GET /api/illustrations/:id` decrypts the stored date of birth, loads the rate table by its saved version, and runs the engine again with the saved valuation date. The same inputs, date and rates always produce the same numbers, so the rows never need to be stored.
 
@@ -205,98 +205,79 @@ These are the steps between typing a value and seeing a number:
 
 ## 6. The calculation, step by step
 
-The engine is in `packages/core/src/calc/illustration.ts`.
+The engine is in `packages/core/src/calc/illustration.ts` and reproduces the Illustrations sheet.
 
-**Step 1: Age.** Age is taken at the last completed birthday on the valuation date, as the brief allows. Someone born on 29 February has their birthday on 1 March in non-leap years, so on 28 February 2025 a person born on 29 February 2000 is 24.
+**Inputs** (from the Inputs sheet): date of birth, gender, sum assured, modal premium, premium frequency, policy term (PT) and premium paying term (PPT).
 
-**Step 2: Rating age.** For female lives the rate is taken 3 years younger, a standard pricing convention.
+**Step 1: Age.** Age is taken at the last completed birthday on the valuation date. Someone born on 29 February has their birthday on 1 March in non-leap years, so on 28 February 2025 a person born on 29 February 2000 is 24.
 
-**Step 3: Annual base premium**
-
-```
-annual base premium = sum assured ÷ 1,000 × rate(rating age) × policy term ÷ premium paying term
-```
-
-The rate per ₹1,000 of cover comes from the plan's rate table, by age band. The `policy term ÷ premium paying term` factor squeezes the same total into fewer years when premiums stop before the policy ends.
-
-**Step 4: Rider premiums**
+**Step 2: Annual premium**
 
 ```
-rider cover   = sum assured × rider cover %
-rider premium = rider cover ÷ 1,000 × rider rate
+annual premium = modal premium × instalments per year      (yearly 1, half-yearly 2, monthly 12)
 ```
 
-**Step 5: Instalment**
-
-```
-instalment = (base + rider premiums) × modal factor, rounded to paise
-```
-
-The modal factors are 1 (annual), 0.51 (half-yearly), 0.26 (quarterly) and 0.0875 (monthly). Paying more often costs slightly more in total.
-
-**Step 6: Project each policy year, t = 1 to the policy term**
+**Step 3: One row per year of the bonus schedule, t = 1 to 20**
 
 | Column | Formula |
 | --- | --- |
-| Policy year, Age | t, and entry age + t − 1 |
-| Base / rider / total premium | instalment × instalments per year, while t ≤ premium paying term; after that 0 |
-| Cumulative premium | Running total of premiums paid |
-| Sum assured | Fixed |
-| Bonus | sum assured × reversionary bonus rate (a simple bonus, not compounding) |
-| Accrued bonus | Running total of bonuses |
-| Death benefit | max(sum assured, 10 × annual premium, 105% of premiums paid) + accrued bonus |
-| Surrender value | base premiums paid × surrender factor for year t (0 in year 1) |
-| Maturity benefit | At t = policy term only: sum assured + accrued bonus × (1 + terminal bonus rate) |
-| Net cash flow | benefit received − premium paid |
+| Policy Year | t |
+| Premium | the annual premium while t ≤ PPT; after that 0 |
+| Sum Assured | the sum assured in year PT only; otherwise 0 |
+| Bonus Rate | that year's rate from the bonus schedule (the plan's rate table) |
+| Bonus Amount | sum assured × bonus rate |
+| Total Benefit | in year PT only: sum assured + the bonus amount of **every** year in the schedule; otherwise 0 |
+| Net Cashflows | total benefit − premium |
 
-**Worked example.** This is a test in the code.
+**Step 4: IRR.** The internal rate of return of the net cash flows, with year 1 at time 0, as the spreadsheet's `IRR()` does. It is solved in `packages/core/src/calc/irr.ts`: a float estimate first, then Newton's method in exact decimals, with bisection as a fallback. If the cash flows never change sign there is no IRR, and it is shown as "–".
 
-Inputs: Secure Endowment Plan, male aged 30, sum assured ₹10,00,000, policy term 20 years, premium paying term 10 years, annual payments, no riders.
+The bonus schedule, in policy-year order: 2.5%, 3%, 3.5%, 3.5%, 3.5%, 3.5%, 3%, 3%, 3%, 3%, 3%, 2.5%, 3%, 3%, 2.5%, 5%, 4%, 4.5%, 4%, 25%.
+
+**Worked example.** This is the sheet's own example, checked row by row in `packages/core/tests/illustration.test.ts`.
+
+Inputs: male born 12 December 1999, sum assured ₹12,00,000, premium ₹80,000 yearly, PT 18, PPT 10.
 
 | Step | Value |
 | --- | --- |
-| Rate at age 30 | ₹40.20 per ₹1,000 |
-| Annual premium | 1,000 × 40.20 × 20 ÷ 10 = **₹80,400** |
-| Bonus each year | ₹10,00,000 × 4.5% = ₹45,000 |
-| Death benefit, year 1 | max(₹10,00,000, ₹8,04,000, ₹84,420) + ₹45,000 = **₹10,45,000** |
-| Surrender value, year 10 | ₹8,04,000 × 0.60 = **₹4,82,400** |
-| Maturity benefit, year 20 | ₹10,00,000 + ₹9,00,000 + 15% × ₹9,00,000 = **₹20,35,000** |
+| Premium, years 1–10 | ₹80,000 a year, ₹8,00,000 in total |
+| Bonus, year 1 | ₹12,00,000 × 2.5% = ₹30,000 |
+| Bonus, all 20 years | ₹10,56,000 |
+| Total benefit, year 18 | ₹12,00,000 + ₹10,56,000 = **₹22,56,000** |
+| IRR | **8.415%**, shown in the sheet as 8.4% |
+
+**How the spreadsheet's quirks are handled**
+- **Bonuses after the policy term.** The sheet adds the bonuses of all 20 years to the year-18 payout, including years 19 and 20, which fall after an 18-year policy ends (year 20 alone is 25%). The engine does the same so the figures match. Counting only years 1 to PT would give ₹19,08,000 and an IRR of 7.04% for the example. The rule is one line in `generateIllustration` if the business wants it changed.
+- **The example fails validation.** Its ₹80,000 premium is above the ₹50,000 maximum in rule 1, so the app rejects it. The engine still produces it when called directly, which is how the test checks it.
+- **The sum assured rule** reads "Minimum of 10 times Sum assured or 5000000". It is taken to mean the sum assured must be at least the lower of 10 × the annual premium and ₹50,00,000 (section 7).
 
 **Money rules**
 - Every calculation uses `decimal.js`. JavaScript floats can't represent paise exactly: adding ₹1,990.63 twelve times in floats gives 23887.56000000001.
-- Values are rounded only where money is actually charged (the instalment) or displayed. They are never rounded between steps, because rounding inside a 30-year loop compounds the error.
-- A missing rate throws `RateNotFoundError`. It never falls back to zero, because a silently wrong illustration is the worst possible failure here.
+- Values are never rounded between steps, only when they are displayed.
+- A bonus schedule shorter than the policy term throws `RateNotFoundError`. It never falls back to zero, because a silently wrong illustration is the worst possible failure here.
 
 ---
 
 ## 7. The five input validations
 
-The rules are in `packages/core/src/validation/illustrationInput.ts`, in the `ILLUSTRATION_RULES` list. Every limit comes from the selected plan's data, and every limit is inclusive.
+The rules are in `packages/core/src/validation/illustrationInput.ts`, in the `ILLUSTRATION_RULES` list. They are the five rules on the Inputs sheet. Rule 1 sets three ranges, so it is three checks, and each check records which sheet rule it implements (`sheetRule`). Every limit comes from the plan's data, and every limit is inclusive.
 
-| # | Rule | Field it reports on | Sample limit (Endowment) |
+| Sheet rule | Check | Field it reports on | Limit |
 | --- | --- | --- | --- |
-| 1 | Entry age is within the plan's range | Date of birth | 18 to 55 years |
-| 2 | Sum assured is within the plan's range | Sum assured | ₹1,00,000 to ₹1,00,00,000 |
-| 3 | Policy term is within the plan's range | Policy term | 10 to 30 years |
-| 4 | Premium paying term is at least the minimum and no longer than the policy term | Premium paying term | 5 years up to the policy term |
-| 5 | Entry age + policy term does not exceed the maximum maturity age | Policy term | 75 years |
+| 1 | `PREMIUM_TERM_RANGE` | Premium paying term | 5 to 10 years |
+| 1 | `POLICY_TERM_RANGE` | Policy term | 10 to 20 years |
+| 1 | `PREMIUM_RANGE` | Premium | ₹10,000 to ₹50,000 per instalment |
+| 2 | `TERM_ORDER` | Policy term | Policy term longer than the premium paying term |
+| 3 | `FREQUENCY` | Premium frequency | Yearly, half-yearly or monthly |
+| 4 | `SUM_ASSURED_MIN` | Sum assured | At least the lower of 10 × annual premium and ₹50,00,000 |
+| 5 | `ENTRY_AGE` | Date of birth | 23 to 56 years |
 
-Rules 4 and 5 compare two fields, which is why they're written against the whole input rather than as single-field checks.
+**Choices where the sheet is open to reading**
+- The premium limit applies to each instalment, as entered. A monthly premium of ₹10,000 passes, even though it is ₹1,20,000 a year.
+- Rule 4 uses the annual premium: ₹30,000 half-yearly needs a sum assured of at least ₹6,00,000.
 
-The same schema also rejects choices the plan doesn't offer: a payment frequency it doesn't allow, an unknown rider, or the same rider twice. All failures are reported together, each against its field.
+A frequency outside the three is rejected by the input schema before the rules run. All failures are reported together, each against its field.
 
-**Swapping in the spreadsheet's rules.** When the spreadsheet is available, change these files:
-1. `ILLUSTRATION_RULES` and `illustrationInputShape` in `packages/core/src/validation/illustrationInput.ts`
-2. `calculatePremium`, `generateIllustration` and `ILLUSTRATION_COLUMNS` in `packages/core/src/calc/illustration.ts`
-3. The limits and rates in `packages/core/src/data/sampleProducts.ts`, then run `npm run db:seed`
-4. The test values in `packages/core/tests/`, taking the expected figures from the Illustrations sheet
-
-If the sheet's inputs differ from these (for example, if it takes the premium as an input rather than the sum assured), these also need updating:
-- the form in `packages/web/src/pages/CalculatePage.tsx`
-- the `Illustration` model in `packages/api/prisma/schema.prisma`, followed by a migration
-- the bulk CSV columns in `packages/api/src/bulk/`
-
-The chart, the How it works page and this README describe the current formulas, so update them too.
+**Changing the rules.** Limits are data, so changing one means editing `packages/core/src/data/sampleProducts.ts` and running `npm run db:seed`. A new kind of rule is a new entry in `ILLUSTRATION_RULES`, which the browser, API and bulk runner all pick up.
 
 ---
 
@@ -307,18 +288,17 @@ The data model is in `packages/api/prisma/schema.prisma`.
 | Table | What it holds |
 | --- | --- |
 | `User` | The email as an HMAC hash (for login lookup) and as ciphertext. The bcrypt password hash. The name, DOB and mobile as ciphertext. The first initial and the last 4 digits of the mobile, for display. `tokenVersion`, which logout increments. |
-| `PolicyType` | A plan and its limits: age, policy term, premium paying term, sum assured and maximum maturity age |
-| `Rider` | An add-on cover for a plan: rate per ₹1,000 and cover % of the sum assured |
-| `PremiumOption` | A payment frequency for a plan: modal factor and instalments per year |
-| `RateTable` | Versioned assumptions, stored as JSON: premium rates by age band, female age setback, bonus rates and surrender factors. Only one version is active per plan. |
-| `Illustration` | A saved illustration's inputs (with the DOB encrypted), its valuation date, its rate version, and summary figures for the list view |
+| `PolicyType` | A plan and its limits: entry age, policy term, premium paying term, premium, and the sum assured multiple and cap |
+| `PremiumOption` | A payment frequency for a plan and its instalments per year |
+| `RateTable` | The versioned bonus schedule, stored as JSON: one bonus rate per policy year. Only one version is active per plan. |
+| `Illustration` | A saved illustration's inputs, including the premium (with the DOB encrypted), its valuation date, its rate version, and summary figures for the list view: total premium, total benefit and IRR |
 | `AuditLog` | Security events: register, login, failed login, logout, PII reveal, illustration create. IP addresses are stored as hashes. |
 
 **Design decisions**
 - **Money is `Decimal(15,2)`** in the database, never a float.
-- **Rates are data, not code.** A new rate table is a new row with a new version, so pricing changes need no deployment.
+- **Rates are data, not code.** A new bonus schedule is a new row with a new version, so bonus changes need no deployment.
 - **Only inputs are stored, not output rows.** A 20-year illustration is one row instead of twenty. At millions of illustrations, that is the difference between millions of rows and tens of millions. The rate version and valuation date make every saved illustration exactly reproducible.
-- **Rate JSON is validated on load.** A malformed rate table fails loudly rather than producing a wrong premium.
+- **Rate JSON is validated on load.** A malformed rate table fails loudly rather than producing a wrong illustration.
 
 ---
 
@@ -441,8 +421,8 @@ npm run bulk -- bulk-input.csv bulk-output.csv --workers 11 --chunk 5000
 Measured on a 12-core laptop:
 
 ```
-10,00,000 rows in 9.8s (1,01,556 rows/s) with 11 workers, 200 chunks of 5000.
-OK 949539, invalid 50461, errors 0.
+10,00,000 rows in 9.1s (1,10,480 rows/s) with 11 workers, 200 chunks of 5000.
+OK 931778, invalid 68222, errors 0.
 ```
 
 The same run completes with each worker's memory capped at 48 MB, which shows memory depends on the chunk size, not the file size. The calculation itself is cheap, so at scale the limit is I/O. That's why the design streams its input, batches its output, and keeps the engine free of I/O. Moving to many machines replaces the thread pool with a real queue; the worker code stays the same.
@@ -450,11 +430,11 @@ The same run completes with each worker's memory capped at 48 MB, which shows me
 **Input CSV format**
 
 ```
-id,policyTypeCode,dob,gender,sumAssured,policyTerm,premiumTerm,frequency,riderCodes
-1,ENDOWMENT,1996-01-15,MALE,1000000,20,10,ANNUAL,ADB|CI
+id,policyTypeCode,dob,gender,sumAssured,modalPremium,policyTerm,premiumTerm,frequency
+1,ENDOWMENT,1999-12-12,MALE,1200000,40000,18,10,ANNUAL
 ```
 
-Output columns: `id, status (OK / INVALID / ERROR), entryAge, modalPremium, annualisedPremium, totalPremiumPaid, maturityBenefit, rateVersion, errors`.
+Output columns: `id, status (OK / INVALID / ERROR), entryAge, modalPremium, annualisedPremium, totalPremiumPaid, maturityBenefit, irr, rateVersion, errors`. `maturityBenefit` is the total benefit.
 
 ---
 
@@ -471,7 +451,7 @@ Every route except `/api/auth/*` and `/api/health` needs an `Authorization: Bear
 | POST | `/api/auth/logout` | Revoke refresh tokens and clear the cookie |
 | GET | `/api/me` | Your masked profile |
 | POST | `/api/me/reveal` | Your unmasked profile (password required, audited) |
-| GET | `/api/policy-types` | Plans with their limits, riders, premium options and table columns |
+| GET | `/api/policy-types` | Plans with their limits, premium options and table columns |
 | GET | `/api/policy-types/:code` | One plan |
 | POST | `/api/illustrations/preview` | Validate and calculate without saving |
 | POST | `/api/illustrations` | Validate, calculate and save |
@@ -486,8 +466,8 @@ Every route except `/api/auth/*` and `/api/health` needs an `Authorization: Bear
     "code": "VALIDATION_FAILED",
     "message": "One or more inputs are invalid",
     "details": [
-      { "field": "premiumTerm", "code": "PREMIUM_TERM_RANGE",
-        "message": "Premium paying term must be at least 5 years and cannot exceed the policy term" }
+      { "field": "modalPremium", "code": "PREMIUM_RANGE",
+        "message": "Premium must be between ₹10,000 and ₹50,000" }
     ]
   }
 }
@@ -499,13 +479,13 @@ The form places each `details` entry directly under the matching field.
 
 ## 13. Tests
 
-Run everything with `npm test`: 58 core tests and 43 API tests.
+Run everything with `npm test`: 64 core tests and 45 API tests.
 
 | Area | What is tested |
 | --- | --- |
-| Validation | Both sides of every limit for all five rules (for example, exactly 18 passes and one day short of 18 fails), all failures reported together, and the frequency and rider checks |
+| Validation | Both sides of every limit in all five sheet rules (for example, exactly 23 passes and one day short of 23 fails), the sum assured cap for each frequency, the sheet's own example failing on its premium, and all failures reported together |
 | Age | Birthday today and tomorrow, year boundaries, 29 February in leap and non-leap years, impossible dates |
-| Engine | The worked example above checked row by row, female rating, riders with monthly payments, rounding to paise, float drift, a missing rate, determinism |
+| Engine | The sheet's example checked against all 20 rows and its 8.4% IRR, half-yearly and monthly premiums, the payout year following the policy term, IRR edge cases, a short bonus schedule, determinism |
 | Encryption | Round trip, fresh IV on each encryption, tamper detection, a value moved to another column, wrong key, key rotation |
 | Configuration | Every required secret, weak secrets, secrets never printed in errors, the timezone-safe "today" |
 | API | Missing, forged and wrong-type tokens, the error format, PII absent from responses, malformed JSON, no leaked internals, security headers |
@@ -514,7 +494,7 @@ Run everything with `npm test`: 58 core tests and 43 API tests.
 
 ## 14. Known gaps and next steps
 
-- **Calculation rules.** The five validations, the formulas and the rates are stand-ins until the assignment spreadsheet can be opened (section 7).
+- **Spreadsheet quirks.** The total benefit counts bonuses for years after the policy term, to match the sheet. Confirm this with the business (section 6).
 - **Bulk upload over HTTP.** The bulk runner is a command-line tool. The upload, job and status endpoints plus a real queue are the next step.
 - **Refresh token reuse detection.** Logout revokes all of a user's refresh tokens, but a stolen refresh token stays valid until logout or expiry. The next step is to store refresh token IDs and treat any reuse as theft.
 - **Integration tests against a real database.** The API tests use an in-memory catalogue. A Testcontainers suite would cover the database paths.
@@ -529,7 +509,7 @@ Run everything with `npm test`: 58 core tests and 43 API tests.
 | --- | --- |
 | `No workspaces found` | Run npm commands from the project root, and check the root `package.json` has `"workspaces": ["packages/*"]` |
 | API exits with `Invalid environment configuration` | The message names the variable. Check `packages/api/.env` against `.env.example`. |
-| `Can't reach database server` | Start Docker Desktop, then run `npm run db:up`. The database is on port **5433**. |
+| `Can't reach database server`, or login and register fail with `ECONNREFUSED` in the API log | Start Docker Desktop, then run `npm run db:up`. The database is on port **5433**. |
 | `bcrypt` or Prisma errors after install | `npm install-scripts approve bcrypt prisma @prisma/engines esbuild && npm rebuild` |
 | Web app says it can't reach the server | Make sure the API is running on port 4000. `npm run dev` starts both. |
 | Port 5173 is in use | Another Vite server is running. Stop it, or use the port Vite prints. |
@@ -566,7 +546,7 @@ The browser only ever talks to the Vercel domain. Vercel forwards `/api/*` to Re
    - `DATABASE_URL`: the database's **Internal** Database URL
    - `WEB_ORIGIN`: the Vercel URL, for example `https://assesment.vercel.app`
 
-   Each deploy runs `prisma migrate deploy` before starting the server. Check `https://<service>.onrender.com/api/health` afterwards.
+   Each deploy runs `prisma migrate deploy` before starting the server. The `sheet_calculation` migration deletes illustrations and plans saved under the old placeholder model, so run `npm run db:seed` against the database once after deploying it. Check `https://<service>.onrender.com/api/health` afterwards.
 3. **Frontend.** Import the repository in Vercel, or run `vercel --prod` from the project root. `vercel.json` sets the install, build and output settings and the `/api` rewrite. If Render gives the API a different URL than `benefit-illustration-api.onrender.com`, update the rewrite destination in `vercel.json`.
 
 **After deploying.** The first request after the API has slept takes about 50 seconds. A free uptime monitor pinging `/api/health` every 10 minutes keeps it awake.

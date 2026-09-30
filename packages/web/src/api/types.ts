@@ -1,4 +1,4 @@
-import type { IllustrationInput, IllustrationResultDTO, PolicyType } from '@app/core'
+import type { ColumnFormat, IllustrationInput, IllustrationResultDTO, PolicyType } from '@app/core'
 
 export interface MaskedUser {
   id: string
@@ -13,7 +13,7 @@ export interface MaskedUser {
 export interface Column {
   key: string
   label: string
-  money: boolean
+  format: ColumnFormat
 }
 
 export type PolicyTypeView = PolicyType & { rateVersion: string }
@@ -34,11 +34,11 @@ export interface IllustrationListItem {
   policyTerm: number
   premiumTerm: number
   frequency: string
-  riderCodes: string[]
   asOf: string
   entryAge: number
   modalPremium: string
   totalPremium: string
   maturityBenefit: string
+  irr: string | null
   createdAt: string
 }

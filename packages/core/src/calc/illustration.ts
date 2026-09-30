@@ -1,7 +1,8 @@
 import { ageLastBirthday } from './age.js';
-import { D, ZERO, maxOf, roundMoney, toMoneyString, type Money } from './money.js';
-import type { IllustrationInput } from '../validation/illustrationInput.js';
-import type { PolicyType, PremiumOption, RateTable } from '../types/policy.js';
+import { irr } from './irr.js';
+import { D, ZERO, toMoneyString, type Money } from './money.js';
+import { instalmentsPerYear, type IllustrationInput } from '../validation/illustrationInput.js';
+import type { PolicyType, RateTable } from '../types/policy.js';
 
 export class RateNotFoundError extends Error {
   constructor(message: string) {
@@ -20,36 +21,29 @@ export class InvalidIllustrationError extends Error {
 export interface IllustrationRow {
   policyYear: number;
   age: number;
-  basePremium: Money;
-  riderPremium: Money;
-  totalPremium: Money;
+  premium: Money;
   cumulativePremium: Money;
   sumAssured: Money;
-  bonus: Money;
-  accruedBonus: Money;
-  deathBenefit: Money;
-  surrenderValue: Money;
-  maturityBenefit: Money;
+  bonusRate: Money;
+  bonusAmount: Money;
+  cumulativeBonus: Money;
+  totalBenefit: Money;
   netCashflow: Money;
 }
 
 export interface PremiumBreakdown {
   entryAge: number;
-  ratingAge: number;
-  ratePerMille: Money;
-  annualBasePremium: Money;
-  annualRiderPremium: Money;
-  riderPremiums: { code: string; name: string; cover: Money; annualPremium: Money }[];
-  modalFactor: Money;
-  instalmentsPerYear: number;
   modalPremium: Money;
+  instalmentsPerYear: number;
   annualisedPremium: Money;
 }
 
 export interface IllustrationSummary {
   totalPremiumPaid: Money;
+  totalBonus: Money;
   maturityBenefit: Money;
   maturityAge: number;
+  irr: Money | null;
 }
 
 export interface IllustrationResult {
@@ -59,80 +53,30 @@ export interface IllustrationResult {
   summary: IllustrationSummary;
 }
 
-export function lookupPremiumRate(rates: RateTable, age: number): Money {
-  const band = rates.premiumRates.find((b) => age >= b.minAge && age <= b.maxAge);
-  if (!band) {
-    throw new RateNotFoundError(
-      `No premium rate for age ${age} in ${rates.policyTypeCode} rates ${rates.version}`,
-    );
-  }
-  return new D(band.ratePerMille);
-}
-
-export function surrenderFactorFor(rates: RateTable, policyYear: number): Money {
-  let factor = ZERO;
-  for (const entry of rates.surrenderFactors) {
-    if (entry.fromYear <= policyYear) factor = new D(entry.factor);
-  }
-  return factor;
-}
-
-function premiumOptionFor(policy: PolicyType, input: IllustrationInput): PremiumOption {
-  const option = policy.premiumOptions.find((o) => o.frequency === input.frequency);
-  if (!option) {
+export function calculatePremium(input: IllustrationInput, policy: PolicyType, asOf: string): PremiumBreakdown {
+  const perYear = instalmentsPerYear(policy, input.frequency);
+  if (perYear === undefined) {
     throw new InvalidIllustrationError(`${policy.code} is not offered with ${input.frequency} premiums`);
   }
-  return option;
-}
-
-export function calculatePremium(
-  input: IllustrationInput,
-  policy: PolicyType,
-  rates: RateTable,
-  asOf: string,
-): PremiumBreakdown {
-  const entryAge = ageLastBirthday(input.dob, asOf);
-  const ratingAge = input.gender === 'FEMALE' ? Math.max(entryAge - rates.femaleAgeSetback, 0) : entryAge;
-  const ratePerMille = lookupPremiumRate(rates, ratingAge);
-  const sumAssured = new D(input.sumAssured);
-
-  const annualBasePremium = sumAssured
-    .div(1000)
-    .times(ratePerMille)
-    .times(input.policyTerm)
-    .div(input.premiumTerm);
-
-  const riderPremiums = input.riderCodes.map((code) => {
-    const rider = policy.riders.find((r) => r.code === code);
-    if (!rider) throw new InvalidIllustrationError(`Rider ${code} is not offered on ${policy.code}`);
-    const cover = sumAssured.times(rider.coverPct);
-    return {
-      code: rider.code,
-      name: rider.name,
-      cover,
-      annualPremium: cover.div(1000).times(rider.ratePerMille),
-    };
-  });
-  const annualRiderPremium = riderPremiums.reduce((sum, r) => sum.plus(r.annualPremium), ZERO);
-
-  const option = premiumOptionFor(policy, input);
-  const modalFactor = new D(option.modalFactor);
-  const modalPremium = roundMoney(annualBasePremium.plus(annualRiderPremium).times(modalFactor));
-
+  const modalPremium = new D(input.modalPremium);
   return {
-    entryAge,
-    ratingAge,
-    ratePerMille,
-    annualBasePremium,
-    annualRiderPremium,
-    riderPremiums,
-    modalFactor,
-    instalmentsPerYear: option.instalmentsPerYear,
+    entryAge: ageLastBirthday(input.dob, asOf),
     modalPremium,
-    annualisedPremium: modalPremium.times(option.instalmentsPerYear),
+    instalmentsPerYear: perYear,
+    annualisedPremium: modalPremium.times(perYear),
   };
 }
 
+/**
+ * Builds the Illustrations sheet: one row per year of the bonus schedule.
+ *
+ * - Premium: modal premium × instalments per year, while the year is within the premium paying term.
+ * - Bonus amount: sum assured × that year's bonus rate.
+ * - Total benefit: paid once, at the end of the policy term: sum assured plus the bonus amounts of
+ *   every year in the schedule. The spreadsheet sums the whole schedule, including years after
+ *   the policy term, and this reproduces it so the figures match.
+ * - Net cash flow: total benefit − premium. The IRR is taken over these, year 1 at time 0.
+ */
 export function generateIllustration(
   input: IllustrationInput,
   policy: PolicyType,
@@ -142,74 +86,58 @@ export function generateIllustration(
   if (rates.policyTypeCode !== policy.code || input.policyTypeCode !== policy.code) {
     throw new InvalidIllustrationError('Input, policy type and rate table do not match');
   }
-  if (input.premiumTerm < 1 || input.premiumTerm > input.policyTerm) {
-    throw new InvalidIllustrationError('Premium paying term must be between 1 and the policy term');
+  if (input.premiumTerm < 1 || input.premiumTerm >= input.policyTerm) {
+    throw new InvalidIllustrationError('Premium paying term must be at least 1 year and shorter than the policy term');
+  }
+  if (rates.bonusRates.length < input.policyTerm) {
+    throw new RateNotFoundError(
+      `No bonus rate for year ${rates.bonusRates.length + 1} in ${rates.policyTypeCode} rates ${rates.version}`,
+    );
   }
 
-  const premium = calculatePremium(input, policy, rates, asOf);
+  const premium = calculatePremium(input, policy, asOf);
   const sumAssured = new D(input.sumAssured);
-  const bonusRate = new D(rates.reversionaryBonusRate);
-  const terminalBonusRate = new D(rates.terminalBonusRate);
-
-  const grossAnnual = premium.annualBasePremium.plus(premium.annualRiderPremium);
-  const baseShare = grossAnnual.isZero() ? ZERO : premium.annualBasePremium.div(grossAnnual);
-  const annualisedBase = roundMoney(premium.annualisedPremium.times(baseShare));
-  const annualisedRider = premium.annualisedPremium.minus(annualisedBase);
+  const bonusRates = rates.bonusRates.map((r) => new D(r));
+  const totalBonus = bonusRates.reduce((sum, rate) => sum.plus(sumAssured.times(rate)), ZERO);
+  const maturityBenefit = sumAssured.plus(totalBonus);
 
   const rows: IllustrationRow[] = [];
   let cumulativePremium = ZERO;
-  let cumulativeBasePremium = ZERO;
-  let accruedBonus = ZERO;
+  let cumulativeBonus = ZERO;
 
-  for (let year = 1; year <= input.policyTerm; year++) {
-    const paying = year <= input.premiumTerm;
-    const basePremium = paying ? annualisedBase : ZERO;
-    const riderPremium = paying ? annualisedRider : ZERO;
-    const totalPremium = basePremium.plus(riderPremium);
-
-    cumulativePremium = cumulativePremium.plus(totalPremium);
-    cumulativeBasePremium = cumulativeBasePremium.plus(basePremium);
-
-    const bonus = sumAssured.times(bonusRate);
-    accruedBonus = accruedBonus.plus(bonus);
-
-    const deathBenefit = maxOf(
-      sumAssured,
-      annualisedBase.times(10),
-      cumulativeBasePremium.times('1.05'),
-    ).plus(accruedBonus);
-
+  bonusRates.forEach((bonusRate, index) => {
+    const year = index + 1;
     const isMaturity = year === input.policyTerm;
-    const maturityBenefit = isMaturity
-      ? sumAssured.plus(accruedBonus).plus(accruedBonus.times(terminalBonusRate))
-      : ZERO;
+    const yearPremium = year <= input.premiumTerm ? premium.annualisedPremium : ZERO;
+    const bonusAmount = sumAssured.times(bonusRate);
+    const totalBenefit = isMaturity ? maturityBenefit : ZERO;
+    cumulativePremium = cumulativePremium.plus(yearPremium);
+    cumulativeBonus = cumulativeBonus.plus(bonusAmount);
 
     rows.push({
       policyYear: year,
       age: premium.entryAge + year - 1,
-      basePremium,
-      riderPremium,
-      totalPremium,
+      premium: yearPremium,
       cumulativePremium,
-      sumAssured,
-      bonus,
-      accruedBonus,
-      deathBenefit,
-      surrenderValue: isMaturity ? ZERO : cumulativeBasePremium.times(surrenderFactorFor(rates, year)),
-      maturityBenefit,
-      netCashflow: maturityBenefit.minus(totalPremium),
+      sumAssured: isMaturity ? sumAssured : ZERO,
+      bonusRate,
+      bonusAmount,
+      cumulativeBonus,
+      totalBenefit,
+      netCashflow: totalBenefit.minus(yearPremium),
     });
-  }
+  });
 
-  const last = rows[rows.length - 1]!;
   return {
     rateVersion: rates.version,
     premium,
     rows,
     summary: {
       totalPremiumPaid: cumulativePremium,
-      maturityBenefit: last.maturityBenefit,
+      totalBonus,
+      maturityBenefit,
       maturityAge: premium.entryAge + input.policyTerm,
+      irr: irr(rows.map((r) => r.netCashflow)),
     },
   };
 }
@@ -217,11 +145,13 @@ export function generateIllustration(
 type Serialized<T> = {
   [K in keyof T]: T[K] extends Money
     ? string
-    : T[K] extends (infer U)[]
-      ? Serialized<U>[]
-      : T[K] extends object
-        ? Serialized<T[K]>
-        : T[K];
+    : T[K] extends Money | null
+      ? string | null
+      : T[K] extends (infer U)[]
+        ? Serialized<U>[]
+        : T[K] extends object
+          ? Serialized<T[K]>
+          : T[K];
 };
 
 export type IllustrationRowDTO = Serialized<IllustrationRow>;
@@ -240,25 +170,24 @@ function serialize<T>(value: T): Serialized<T> {
   return value as Serialized<T>;
 }
 
+/** IRR as a fraction to 6 decimal places, e.g. "0.084150" for 8.42%. */
+export const toRateString = (rate: Money) => rate.toDecimalPlaces(6, D.ROUND_HALF_UP).toFixed(6);
+
 export function toIllustrationDTO(result: IllustrationResult): IllustrationResultDTO {
   const dto = serialize(result);
-  dto.premium.ratePerMille = result.premium.ratePerMille.toString();
-  dto.premium.modalFactor = result.premium.modalFactor.toString();
+  dto.rows.forEach((row, i) => (row.bonusRate = result.rows[i]!.bonusRate.toString()));
+  dto.summary.irr = result.summary.irr && toRateString(result.summary.irr);
   return dto;
 }
 
-export const ILLUSTRATION_COLUMNS: { key: keyof IllustrationRow; label: string; money: boolean }[] = [
-  { key: 'policyYear', label: 'Policy Year', money: false },
-  { key: 'age', label: 'Age', money: false },
-  { key: 'basePremium', label: 'Base Premium', money: true },
-  { key: 'riderPremium', label: 'Rider Premium', money: true },
-  { key: 'totalPremium', label: 'Total Premium', money: true },
-  { key: 'cumulativePremium', label: 'Cumulative Premium', money: true },
-  { key: 'sumAssured', label: 'Sum Assured', money: true },
-  { key: 'bonus', label: 'Bonus', money: true },
-  { key: 'accruedBonus', label: 'Accrued Bonus', money: true },
-  { key: 'deathBenefit', label: 'Death Benefit', money: true },
-  { key: 'surrenderValue', label: 'Surrender Value', money: true },
-  { key: 'maturityBenefit', label: 'Maturity Benefit', money: true },
-  { key: 'netCashflow', label: 'Net Cash Flow', money: true },
+export type ColumnFormat = 'number' | 'money' | 'percent';
+
+export const ILLUSTRATION_COLUMNS: { key: keyof IllustrationRow; label: string; format: ColumnFormat }[] = [
+  { key: 'policyYear', label: 'Policy Year', format: 'number' },
+  { key: 'premium', label: 'Premium', format: 'money' },
+  { key: 'sumAssured', label: 'Sum Assured', format: 'money' },
+  { key: 'bonusRate', label: 'Bonus Rate', format: 'percent' },
+  { key: 'bonusAmount', label: 'Bonus Amount', format: 'money' },
+  { key: 'totalBenefit', label: 'Total Benefit', format: 'money' },
+  { key: 'netCashflow', label: 'Net Cashflows', format: 'money' },
 ];

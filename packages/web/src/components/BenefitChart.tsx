@@ -3,7 +3,7 @@ import type { IllustrationRowDTO } from '@app/core'
 import { formatINR, formatINRCompact } from '../lib/format'
 
 const HEIGHT = 300
-const M = { top: 20, right: 104, bottom: 40, left: 64 }
+const M = { top: 32, right: 104, bottom: 40, left: 64 }
 
 function niceStep(max: number, ticks: number) {
   const raw = max / ticks
@@ -13,11 +13,19 @@ function niceStep(max: number, ticks: number) {
 }
 
 const SERIES = [
-  { key: 'deathBenefit', label: 'Death benefit', color: 'var(--series-1)' },
+  { key: 'cumulativeBonus', label: 'Bonus accrued', color: 'var(--series-1)' },
   { key: 'cumulativePremium', label: 'Premiums paid to date', color: 'var(--series-2)' },
 ] as const
 
-export function BenefitChart({ rows, maturityBenefit }: { rows: IllustrationRowDTO[]; maturityBenefit: string }) {
+export function BenefitChart({
+  rows,
+  maturityBenefit,
+  policyTerm,
+}: {
+  rows: IllustrationRowDTO[]
+  maturityBenefit: string
+  policyTerm: number
+}) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(720)
   const [hover, setHover] = useState<number | null>(null)
@@ -52,9 +60,10 @@ export function BenefitChart({ rows, maturityBenefit }: { rows: IllustrationRowD
 
   const last = rows[n - 1]!
   const endYs = SERIES.map((s) => y(Number(last[s.key])))
+  const maturityX = x(policyTerm)
   const maturityY = y(maturity)
   const clear = (a: number, b: number) => Math.abs(a - b) >= 16
-  const showEndLabel = SERIES.map((_, i) => clear(endYs[i]!, maturityY) && clear(endYs[0]!, endYs[1]!))
+  const showEndLabel = SERIES.map((_, i) => clear(endYs[0]!, endYs[1]!) || i === 0)
 
   function onPointerMove(e: React.PointerEvent<SVGRectElement>) {
     const box = e.currentTarget.getBoundingClientRect()
@@ -78,12 +87,12 @@ export function BenefitChart({ rows, maturityBenefit }: { rows: IllustrationRowD
         ))}
         <span className="legend-item">
           <span className="legend-dot" style={{ background: 'var(--series-3)' }} />
-          Maturity benefit
+          Total benefit
         </span>
       </div>
 
       <div className="chart" ref={wrapRef}>
-        <svg width={width} height={HEIGHT} role="img" aria-label="Death benefit and premiums paid by policy year">
+        <svg width={width} height={HEIGHT} role="img" aria-label="Bonus accrued and premiums paid by policy year">
           <g className="axis">
             {yTicks.map((t) => (
               <g key={t}>
@@ -116,9 +125,10 @@ export function BenefitChart({ rows, maturityBenefit }: { rows: IllustrationRowD
               ),
           )}
 
-          <circle cx={x(n)} cy={maturityY} r={5} fill="var(--series-3)" stroke="var(--surface)" strokeWidth={2} />
-          <text className="label" x={x(n) + 10} y={maturityY} dy="0.32em">
-            Maturity {formatINRCompact(maturity)}
+          <line className="crosshair" x1={maturityX} x2={maturityX} y1={maturityY} y2={M.top + innerH} />
+          <circle cx={maturityX} cy={maturityY} r={5} fill="var(--series-3)" stroke="var(--surface)" strokeWidth={2} />
+          <text className="label" x={maturityX} y={maturityY - 12} textAnchor="middle">
+            Year {policyTerm}: {formatINRCompact(maturity)}
           </text>
 
           {hovered && (
@@ -163,14 +173,14 @@ export function BenefitChart({ rows, maturityBenefit }: { rows: IllustrationRowD
               </div>
             ))}
             <div className="tooltip-row">
-              <span>Accrued bonus</span>
-              <strong className="num">{formatINR(hovered.accruedBonus)}</strong>
+              <span>Bonus this year</span>
+              <strong className="num">{formatINR(hovered.bonusAmount)}</strong>
             </div>
-            {hovered.policyYear === n && (
+            {hovered.policyYear === policyTerm && (
               <div className="tooltip-row">
                 <span>
                   <span className="legend-dot" style={{ background: 'var(--series-3)' }} />
-                  Maturity benefit
+                  Total benefit
                 </span>
                 <strong className="num">{formatINR(maturity)}</strong>
               </div>

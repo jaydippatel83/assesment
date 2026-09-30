@@ -2,7 +2,10 @@ import {
   ageLastBirthday,
   createIllustrationSchema,
   illustrationInputShape,
+  instalmentsPerYear,
   isValidIsoDate,
+  minimumSumAssured,
+  D,
   type IllustrationInput,
 } from '@app/core'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -23,7 +26,7 @@ import {
   FREQUENCY_PER,
   formatINR,
   formatINRCompact,
-  formatPct,
+  formatIrr,
   todayIso,
 } from '../lib/format'
 
@@ -49,7 +52,7 @@ export function CalculatePage() {
   const { control, register, handleSubmit, getValues, setValue, setError, formState } = useForm<FormInput, unknown, IllustrationInput>({
     resolver,
     mode: 'onTouched',
-    defaultValues: { policyTypeCode: '', gender: 'MALE', frequency: 'ANNUAL', riderCodes: [] },
+    defaultValues: { policyTypeCode: '', gender: 'MALE', frequency: 'ANNUAL' },
   })
   const { errors, isSubmitting } = formState
 
@@ -64,15 +67,12 @@ export function CalculatePage() {
   }, [setValue])
 
   const values = useWatch({ control }) as FormInput
-  const riderCodes = (values.riderCodes ?? []) as string[]
   const policy = policyTypes.find((p) => p.code === values.policyTypeCode)
 
   function onPlanChange(code: string) {
     const next = policyTypes.find((p) => p.code === code)
     if (!next) return
     const current = getValues()
-    const riders = (current.riderCodes ?? []) as string[]
-    setValue('riderCodes', riders.filter((c) => next.riders.some((r) => r.code === c)))
     if (!next.premiumOptions.some((o) => o.frequency === current.frequency)) {
       setValue('frequency', next.premiumOptions[0]!.frequency)
     }
@@ -101,11 +101,6 @@ export function CalculatePage() {
   const preview = quoteKey ? (quote?.data ?? null) : null
   const previewing = quoteKey !== null && quote?.key !== quoteKey
 
-  function toggleRider(code: string) {
-    const next = riderCodes.includes(code) ? riderCodes.filter((c) => c !== code) : [...riderCodes, code]
-    setValue('riderCodes', next, { shouldValidate: formState.isSubmitted })
-  }
-
   const onSubmit = handleSubmit(async (input) => {
     setFormError(null)
     try {
@@ -123,11 +118,15 @@ export function CalculatePage() {
 
   const age = values.dob && isValidIsoDate(values.dob) ? ageLastBirthday(values.dob, today) : null
   const sumAssured = Number(values.sumAssured)
+  const modalPremium = Number(values.modalPremium)
+  const perYear = policy && instalmentsPerYear(policy, values.frequency ?? '')
+  const minSumAssured =
+    policy && perYear && modalPremium > 0 ? minimumSumAssured(policy, new D(modalPremium).times(perYear)) : null
   const num = { valueAsNumber: true } as const
 
   return (
     <>
-      <PageHeader title="New illustration" subtitle="Choose a plan and enter the policyholder’s details. Your quote updates as you go." />
+      <PageHeader title="New illustration" subtitle="Choose a plan and enter the policyholder’s details. The benefit and IRR update as you go." />
 
       <form className="calc-layout" noValidate onSubmit={onSubmit}>
         <div className="card">
@@ -152,7 +151,7 @@ export function CalculatePage() {
                       <span>Age {p.minAge}–{p.maxAge}</span>
                       <span>Term {p.minTerm}–{p.maxTerm} yrs</span>
                       <span>
-                        Cover {formatINRCompact(p.minSumAssured)}–{formatINRCompact(p.maxSumAssured)}
+                        Premium {formatINRCompact(p.minPremium)}–{formatINRCompact(p.maxPremium)}
                       </span>
                     </span>
                   </span>
@@ -184,7 +183,40 @@ export function CalculatePage() {
             </div>
           </Section>
 
-          <Section step={3} title="Cover">
+          <Section step={3} title="Premium">
+            <div className="stack" style={{ gap: 16 }}>
+              <Field label="How often will premiums be paid?" error={errors.frequency}>
+                <Segmented>
+                  {policy?.premiumOptions.map((o) => (
+                    <label key={o.frequency}>
+                      <input type="radio" value={o.frequency} {...register('frequency')} />
+                      <span>{FREQUENCY_LABEL[o.frequency]}</span>
+                    </label>
+                  ))}
+                </Segmented>
+              </Field>
+              <Field
+                label={`${FREQUENCY_LABEL[values.frequency ?? 'ANNUAL']} premium`}
+                htmlFor="premium"
+                error={errors.modalPremium}
+                hint={
+                  <>
+                    {modalPremium > 0 && perYear && perYear > 1 && (
+                      <strong className="text-2">{formatINR(modalPremium * perYear)} a year · </strong>
+                    )}
+                    {policy && `${formatINR(policy.minPremium)} to ${formatINR(policy.maxPremium)} per instalment`}
+                  </>
+                }
+              >
+                <div className="input-affix">
+                  <span className="affix">₹</span>
+                  <input id="premium" className="input" type="number" min={0} step={1000} inputMode="numeric" placeholder="40,000" aria-invalid={invalid(errors.modalPremium)} {...register('modalPremium', num)} />
+                </div>
+              </Field>
+            </div>
+          </Section>
+
+          <Section step={4} title="Cover and terms">
             <div className="stack" style={{ gap: 16 }}>
               <Field
                 label="Sum assured"
@@ -193,19 +225,21 @@ export function CalculatePage() {
                 hint={
                   <>
                     {sumAssured > 0 && <strong className="text-2">{amountInWords(sumAssured)} · </strong>}
-                    {policy && `${formatINR(policy.minSumAssured)} to ${formatINR(policy.maxSumAssured)}`}
+                    {minSumAssured
+                      ? `At least ${formatINR(minSumAssured.toString())}`
+                      : policy && `At least ${policy.sumAssuredMultiple}× the annual premium, capped at ${formatINR(policy.sumAssuredCap)}`}
                   </>
                 }
               >
                 <div className="input-affix">
                   <span className="affix">₹</span>
-                  <input id="sa" className="input" type="number" min={0} step={10000} inputMode="numeric" placeholder="10,00,000" aria-invalid={invalid(errors.sumAssured)} {...register('sumAssured', num)} />
+                  <input id="sa" className="input" type="number" min={0} step={10000} inputMode="numeric" placeholder="12,00,000" aria-invalid={invalid(errors.sumAssured)} {...register('sumAssured', num)} />
                 </div>
               </Field>
               <div className="grid-2">
-                <Field label="Policy term" htmlFor="pt" error={errors.policyTerm} hint={policy && `${policy.minTerm}–${policy.maxTerm} years`}>
+                <Field label="Policy term" htmlFor="pt" error={errors.policyTerm} hint={policy && `${policy.minTerm}–${policy.maxTerm} years, longer than the paying term`}>
                   <div className="input-affix">
-                    <input id="pt" className="input" style={{ paddingLeft: 12 }} type="number" inputMode="numeric" placeholder="20" aria-invalid={invalid(errors.policyTerm)} {...register('policyTerm', num)} />
+                    <input id="pt" className="input" style={{ paddingLeft: 12 }} type="number" inputMode="numeric" placeholder="18" aria-invalid={invalid(errors.policyTerm)} {...register('policyTerm', num)} />
                     <span className="suffix">years</span>
                   </div>
                 </Field>
@@ -213,7 +247,7 @@ export function CalculatePage() {
                   label="Premium paying term"
                   htmlFor="ppt"
                   error={errors.premiumTerm}
-                  hint={policy && `${policy.minPremiumTerm} years up to the policy term`}
+                  hint={policy && `${policy.minPremiumTerm}–${policy.maxPremiumTerm} years`}
                 >
                   <div className="input-affix">
                     <input id="ppt" className="input" style={{ paddingLeft: 12 }} type="number" inputMode="numeric" placeholder="10" aria-invalid={invalid(errors.premiumTerm)} {...register('premiumTerm', num)} />
@@ -224,52 +258,6 @@ export function CalculatePage() {
             </div>
           </Section>
 
-          <Section step={4} title="Premium payment">
-            <Field label="How often will premiums be paid?" error={errors.frequency}>
-              <Segmented>
-                {policy?.premiumOptions.map((o) => (
-                  <label key={o.frequency}>
-                    <input type="radio" value={o.frequency} {...register('frequency')} />
-                    <span>{FREQUENCY_LABEL[o.frequency]}</span>
-                  </label>
-                ))}
-              </Segmented>
-            </Field>
-          </Section>
-
-          {policy && policy.riders.length > 0 && (
-            <Section step={5} title="Riders" optional>
-              <div className="choice-grid">
-                {policy.riders.map((r) => {
-                  const selected = riderCodes.includes(r.code)
-                  const riderQuote = preview?.premium.riderPremiums.find((q) => q.code === r.code)
-                  return (
-                    <label key={r.code} className={`choice${selected ? ' selected' : ''}`}>
-                      <input type="checkbox" checked={selected} onChange={() => toggleRider(r.code)} />
-                      <span className="choice-indicator square">
-                        <Icon name="check" size={12} />
-                      </span>
-                      <span>
-                        <span className="choice-title">{r.name}</span>
-                        <span className="choice-desc" style={{ display: 'block' }}>
-                          {r.description}
-                        </span>
-                        <span className="choice-meta">
-                          <span>Cover {formatPct(r.coverPct)} of sum assured</span>
-                          {riderQuote && <span>+{formatINR(riderQuote.annualPremium)}/yr</span>}
-                        </span>
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
-              {errors.riderCodes?.message && (
-                <span className="field-error" style={{ marginTop: 8 }}>
-                  {errors.riderCodes.message}
-                </span>
-              )}
-            </Section>
-          )}
         </div>
 
         <aside className="quote stack">
@@ -327,25 +315,17 @@ function QuoteCard({
       {preview ? (
         <div className={previewing ? 'updating' : undefined}>
           <div className="quote-hero">
-            <div className="label">Your {FREQUENCY_LABEL[frequency]?.toLowerCase()} premium</div>
-            <div className="amount">
-              {formatINR(preview.premium.modalPremium)}
-              <span className="per"> / {FREQUENCY_PER[frequency]}</span>
-            </div>
+            <div className="label">Total benefit at age {preview.summary.maturityAge}</div>
+            <div className="amount">{formatINR(preview.summary.maturityBenefit)}</div>
           </div>
           <div className="quote-rows">
-            {frequency !== 'ANNUAL' && (
-              <div className="quote-row">
-                <span>Annual premium</span>
-                <span className="num">{formatINR(preview.premium.annualisedPremium)}</span>
-              </div>
-            )}
-            {preview.premium.riderPremiums.map((r) => (
-              <div className="quote-row small" key={r.code}>
-                <span>incl. {r.name}</span>
-                <span className="num">{formatINR(r.annualPremium)}</span>
-              </div>
-            ))}
+            <div className="quote-row">
+              <span>{FREQUENCY_LABEL[frequency]} premium</span>
+              <span className="num">
+                {formatINR(preview.premium.modalPremium)}
+                <span className="muted"> / {FREQUENCY_PER[frequency]}</span>
+              </span>
+            </div>
             <div className="quote-row">
               <span>Premiums paid for</span>
               <span>{preview.input.premiumTerm} years</span>
@@ -354,10 +334,14 @@ function QuoteCard({
               <span>Total premiums</span>
               <span className="num">{formatINR(preview.summary.totalPremiumPaid)}</span>
             </div>
+            <div className="quote-row">
+              <span>Total bonus</span>
+              <span className="num">{formatINR(preview.summary.totalBonus)}</span>
+            </div>
             <div className="quote-row total">
-              <span>Maturity benefit at {preview.summary.maturityAge}</span>
+              <span>IRR</span>
               <span className="num" style={{ color: 'var(--accent)' }}>
-                {formatINR(preview.summary.maturityBenefit)}
+                {formatIrr(preview.summary.irr)}
               </span>
             </div>
           </div>
@@ -373,9 +357,9 @@ function QuoteCard({
               <Icon name="calculator" size={36} />
               <div>
                 <strong className="text-2" style={{ display: 'block' }}>
-                  Your quote appears here
+                  Your illustration appears here
                 </strong>
-                Enter date of birth, sum assured and terms within the plan’s limits.
+                Enter date of birth, premium, sum assured and terms within the plan’s limits.
               </div>
             </>
           )}
